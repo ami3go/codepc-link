@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">CodePC Link icon</title>
+  <desc id="desc">A mini PC with a Bluetooth symbol and a small browser window.</desc>
+  <defs>
+    <linearGradient id="top" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#edf7ff"/>
+      <stop offset="1" stop-color="#b8d7f5"/>
+    </linearGradient>
+    <linearGradient id="front" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#123f78"/>
+      <stop offset="1" stop-color="#072957"/>
+    </linearGradient>
+  </defs>
+
+  <!-- mini PC -->
+  <path d="M216 318h592c45 0 82 21 112 57l48 57H56l48-57c30-36 67-57 112-57z"
+        fill="url(#top)" stroke="#082f62" stroke-width="30" stroke-linejoin="round"/>
+  <rect x="62" y="414" width="900" height="384" rx="86" fill="#0b3368" stroke="#082f62" stroke-width="30"/>
+  <rect x="91" y="443" width="842" height="326" rx="60" fill="url(#front)" stroke="#d8ecff" stroke-width="22"/>
+  <rect x="145" y="783" width="116" height="48" rx="23" fill="#082f62"/>
+  <rect x="763" y="783" width="116" height="48" rx="23" fill="#082f62"/>
+
+  <!-- status LED -->
+  <circle cx="196" cy="603" r="34" fill="#12c9f7"/>
+
+  <!-- Bluetooth rune, intentionally slightly left of center -->
+  <g transform="translate(402 505)" fill="none" stroke="#ffffff" stroke-width="34" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M73 0v196l92-78-92-78 92-78-92-78z"/>
+    <path d="M0 42l146 122"/>
+    <path d="M0 154L146 32"/>
+  </g>
+  <path d="M475 505l62 54-62 52z" fill="#11c9f5"/>
+  <path d="M475 611l62 53-62 54z" fill="#11c9f5"/>
+
+  <!-- small browser/web page symbol -->
+  <g transform="translate(650 530)">
+    <rect x="0" y="0" width="176" height="152" rx="22" fill="#0b3368" stroke="#ffffff" stroke-width="13"/>
+    <path d="M7 42h162" stroke="#ffffff" stroke-width="12"/>
+    <circle cx="29" cy="22" r="7" fill="#ffffff"/>
+    <circle cx="51" cy="22" r="7" fill="#ffffff"/>
+    <circle cx="73" cy="22" r="7" fill="#ffffff"/>
+    <rect x="23" y="66" width="48" height="50" rx="9" fill="#11c9f5"/>
+    <path d="M91 77h54M91 100h54M91 123h40" stroke="#ffffff" stroke-width="10" stroke-linecap="round"/>
+  </g>
+</svg>
