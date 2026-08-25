@@ -72,15 +72,34 @@ function isUnusableHost(address) {
   );
 }
 
+function isIpv4(address) {
+  const parts = address.split(".");
+  return (
+    parts.length === 4 &&
+    parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) >= 0 && Number(part) <= 255)
+  );
+}
+
+function isIpv6(address) {
+  if (!address.includes(":") || !/^[0-9a-f:.]+$/i.test(address)) return false;
+  try {
+    // URL parsing gives us a compact standards-backed syntax check without
+    // accepting hostnames or URL metacharacters from BLE-provided data.
+    new URL(`https://[${address}]/`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function buildCockpitUrl(address, port = 9090) {
   const host = addressWithoutPrefix(address);
   if (isUnusableHost(host)) return null;
 
-  // Link-local IPv6 needs an interface scope (for example %25wlan0) that
-  // schema v1 intentionally does not carry, so do not emit a misleading URL.
-  if (host.includes(":") && isLinkLocalIpv6(host) && !host.includes("%")) {
-    return null;
-  }
+  // Schema v1 does not carry the interface scope required for a reliable
+  // link-local IPv6 URL, so show the address but do not make it clickable.
+  if (isLinkLocalIpv6(host)) return null;
+  if (!isIpv4(host) && !isIpv6(host)) return null;
 
   const safePort = Number(port);
   if (!Number.isInteger(safePort) || safePort < 1 || safePort > 65535) {
@@ -104,12 +123,20 @@ export function buildCockpitTargets(systemInfo, networkStatus) {
       const host = addressWithoutPrefix(address);
       if (!host) continue;
 
+      let url = null;
+      try {
+        url = buildCockpitUrl(address, port);
+      } catch {
+        // A malformed backend port should not stop the rest of the BLE status
+        // from rendering. The candidate remains visible without a link.
+      }
+
       targets.push({
         interfaceName: String(iface.name || "unknown"),
         interfaceType: String(iface.type || "unknown"),
         address: String(address),
         host,
-        url: buildCockpitUrl(address, port),
+        url,
         defaultRoute: Boolean(iface.default_route),
         internet: iface.internet === true,
       });
@@ -126,7 +153,7 @@ export function buildCockpitTargets(systemInfo, networkStatus) {
 }
 
 export function describeError(error) {
-  if (error instanceof DOMException) {
+  if (typeof DOMException !== "undefined" && error instanceof DOMException) {
     if (error.name === "NotFoundError") return "No device was selected.";
     if (error.name === "SecurityError") return "Bluetooth permission was denied or the page is not in a secure context.";
     if (error.name === "NetworkError") return "The Bluetooth connection was lost.";
