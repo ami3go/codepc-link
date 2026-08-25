@@ -6,28 +6,42 @@ The roadmap is dependency-ordered. The project should prove the BLE path before 
 
 Goal: prove the target mini-PC can operate as a BLE peripheral/GATT server.
 
-- [ ] Record target distro, BlueZ, NetworkManager, Cockpit, Python, Android, and Chrome versions
-- [ ] Verify BLE peripheral/GATT advertising capability
+Implementation tooling is complete and merged. The following remain **target-hardware validation gates**, not software TODOs:
+
+- [ ] Record target distro, BlueZ, NetworkManager, Cockpit, Python, Android, and Chrome versions using `codepc-link doctor`
+- [ ] Verify BLE peripheral/GATT advertising capability on the actual mini-PC
 - [ ] Test rfkill, adapter reset, suspend/resume, and BlueZ restart behavior
 - [ ] Confirm Android can discover the advertisement
+
+See [FEASIBILITY.md](FEASIBILITY.md).
 
 ## Milestone B — BLE Core
 
 Goal: stable read-only status protocol.
 
-- [ ] Persistent device identity
-- [ ] Freeze normalized status schema v1 and fixtures
-- [ ] Commit permanent BLE UUIDs
-- [ ] Decide production read/pairing/privacy policy
-- [ ] Implement Management Core
-- [ ] Implement NetworkManager collector and interface normalization
-- [ ] Separate link, addresses, default route, and Internet state
-- [ ] Implement local `status --json` contract
-- [ ] Register GATT service and advertisement
-- [ ] Implement `SYSTEM_INFO` and `NETWORK_STATUS`
-- [ ] Validate payloads larger than one ATT packet/MTU
-- [ ] Recover after BlueZ restart
-- [ ] Add minimal systemd hardening
+Implemented in the Milestone B branch:
+
+- [x] Persistent device identity
+- [x] Freeze normalized status schema v1 and fixtures
+- [x] Commit permanent BLE UUIDs
+- [x] Decide production read/privacy policy: encrypted reads by default; no BLE writes
+- [x] Implement Management Core
+- [x] Implement NetworkManager collector and interface normalization
+- [x] Separate link, addresses, default route, and Internet state
+- [x] Implement local `status --json` contract
+- [x] Register GATT service and advertisement in the daemon implementation
+- [x] Implement `SYSTEM_INFO` and `NETWORK_STATUS`
+- [x] Implement BlueZ `ReadValue` offset handling and 16 KiB payload guard
+- [x] Add minimal systemd hardening
+
+Still requires real target validation before Milestone B is closed:
+
+- [ ] Validate payloads larger than one ATT packet/negotiated MTU on Android + target BlueZ
+- [ ] Validate encrypted-read pairing behavior on the headless target
+- [ ] Validate advertisement size/name on the target controller
+- [ ] Validate `codepc-link.service` recovery after `bluetooth.service` restart
+
+Protocol contract: [PROTOCOL.md](PROTOCOL.md).
 
 ## Milestone C — Browser Client / v0.1
 
