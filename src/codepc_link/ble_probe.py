@@ -31,7 +31,7 @@ class FeasibilityAdvertisement(ServiceInterface):
         return self._local_name
 
     @method()
-    def Release(self) -> None:
+    def Release(self):
         """BlueZ callback when the advertisement is released."""
 
 
