@@ -23,7 +23,13 @@ export class CodePcBluetoothClient extends EventTarget {
   }
 
   get connected() {
-    return Boolean(this.device?.gatt?.connected && this.server);
+    return Boolean(
+      this.device?.gatt?.connected &&
+      this.server &&
+      this.service &&
+      this.systemInfoCharacteristic &&
+      this.networkStatusCharacteristic,
+    );
   }
 
   async getAvailability() {
@@ -63,15 +69,24 @@ export class CodePcBluetoothClient extends EventTarget {
     this.device.removeEventListener("gattserverdisconnected", this._boundDisconnect);
     this.device.addEventListener("gattserverdisconnected", this._boundDisconnect);
 
-    this.server = device.gatt.connected ? device.gatt : await device.gatt.connect();
-    this.service = await this.server.getPrimaryService(MANAGEMENT_SERVICE_UUID);
-    [this.systemInfoCharacteristic, this.networkStatusCharacteristic] = await Promise.all([
-      this.service.getCharacteristic(SYSTEM_INFO_CHARACTERISTIC_UUID),
-      this.service.getCharacteristic(NETWORK_STATUS_CHARACTERISTIC_UUID),
-    ]);
+    try {
+      this.server = device.gatt.connected ? device.gatt : await device.gatt.connect();
+      this.service = await this.server.getPrimaryService(MANAGEMENT_SERVICE_UUID);
+      [this.systemInfoCharacteristic, this.networkStatusCharacteristic] = await Promise.all([
+        this.service.getCharacteristic(SYSTEM_INFO_CHARACTERISTIC_UUID),
+        this.service.getCharacteristic(NETWORK_STATUS_CHARACTERISTIC_UUID),
+      ]);
 
-    this.dispatchEvent(new Event("connect"));
-    return this.readStatus();
+      this.dispatchEvent(new Event("connect"));
+      return this.readStatus();
+    } catch (error) {
+      this.server = null;
+      this.service = null;
+      this.systemInfoCharacteristic = null;
+      this.networkStatusCharacteristic = null;
+      if (device.gatt.connected) device.gatt.disconnect();
+      throw error;
+    }
   }
 
   async reconnect() {
@@ -82,7 +97,7 @@ export class CodePcBluetoothClient extends EventTarget {
   }
 
   async readStatus() {
-    if (!this.connected || !this.systemInfoCharacteristic || !this.networkStatusCharacteristic) {
+    if (!this.connected) {
       throw new Error("CodePC Link is not connected.");
     }
 
