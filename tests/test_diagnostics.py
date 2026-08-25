@@ -1,7 +1,10 @@
+from codepc_link import diagnostics
 from codepc_link.diagnostics import (
     _extract_hci_names,
     _parse_btmgmt_supported_settings,
     _parse_os_release,
+    _parse_rfkill_flag,
+    _rfkill_state,
     render_text_report,
 )
 
@@ -27,6 +30,45 @@ def test_parse_btmgmt_supported_settings() -> None:
         "advertising",
         "secure-conn",
     }
+
+
+def test_parse_rfkill_flag_handles_util_linux_string_values() -> None:
+    assert _parse_rfkill_flag("yes") is True
+    assert _parse_rfkill_flag("no") is False
+    assert _parse_rfkill_flag("blocked") is True
+    assert _parse_rfkill_flag("unblocked") is False
+    assert _parse_rfkill_flag(True) is True
+    assert _parse_rfkill_flag(False) is False
+    assert _parse_rfkill_flag(1) is True
+    assert _parse_rfkill_flag(0) is False
+    assert _parse_rfkill_flag("unexpected") is None
+
+
+def test_rfkill_state_does_not_treat_string_no_as_blocked(monkeypatch) -> None:
+    payload = (
+        '{"rfkilldevices":['
+        '{"id":0,"type":"bluetooth","device":"hci0","soft":"no","hard":"no"}'
+        ']}'
+    )
+    monkeypatch.setattr(diagnostics.shutil, "which", lambda command: "/usr/bin/rfkill")
+    monkeypatch.setattr(diagnostics, "_run", lambda args: (0, payload, ""))
+
+    state = _rfkill_state()
+
+    assert state["blocked"] is False
+    assert len(state["devices"]) == 1
+
+
+def test_rfkill_state_detects_string_yes(monkeypatch) -> None:
+    payload = (
+        '{"rfkilldevices":['
+        '{"id":0,"type":"bluetooth","device":"hci0","soft":"yes","hard":"no"}'
+        ']}'
+    )
+    monkeypatch.setattr(diagnostics.shutil, "which", lambda command: "/usr/bin/rfkill")
+    monkeypatch.setattr(diagnostics, "_run", lambda args: (0, payload, ""))
+
+    assert _rfkill_state()["blocked"] is True
 
 
 def test_render_text_report() -> None:
