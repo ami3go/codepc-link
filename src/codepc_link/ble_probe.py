@@ -1,7 +1,7 @@
 """Temporary BLE advertiser used only for Milestone A hardware validation."""
 
 # dbus-next intentionally uses D-Bus signatures in return annotations.
-# ruff: noqa: F821, UP037
+# ruff: noqa: F722, F821, UP037
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ import asyncio
 from dbus_next.aio import MessageBus
 from dbus_next.constants import BusType, PropertyAccess
 from dbus_next.service import ServiceInterface, dbus_property, method
+
+from .protocol import MANAGEMENT_SERVICE_UUID
 
 ADVERTISEMENT_PATH = "/org/codepc/link/feasibility_advertisement"
 DEFAULT_LOCAL_NAME = "CodePC Link"
@@ -27,8 +29,21 @@ class FeasibilityAdvertisement(ServiceInterface):
         return "peripheral"
 
     @dbus_property(access=PropertyAccess.READ)
+    def ServiceUUIDs(self) -> "as":
+        # Match the production/Web Bluetooth discovery contract so Android tools
+        # can identify the same service that the PWA filters for.
+        return [MANAGEMENT_SERVICE_UUID]
+
+    @dbus_property(access=PropertyAccess.READ)
     def LocalName(self) -> "s":
         return self._local_name
+
+    @dbus_property(access=PropertyAccess.READ)
+    def Discoverable(self) -> "b":
+        # Explicitly request general discoverability for the feasibility probe.
+        # This is valid for Type="peripheral" and avoids relying on the adapter's
+        # global Discoverable setting.
+        return True
 
     @method()
     def Release(self):
@@ -40,7 +55,7 @@ async def advertise_for_test(
     local_name: str = DEFAULT_LOCAL_NAME,
     seconds: float = 0,
 ) -> None:
-    """Register a minimal advertisement until timeout or Ctrl-C."""
+    """Register a CodePC Link discovery advertisement until timeout or Ctrl-C."""
     bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
     advertisement = FeasibilityAdvertisement(local_name)
     bus.export(ADVERTISEMENT_PATH, advertisement)
