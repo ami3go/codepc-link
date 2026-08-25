@@ -20,7 +20,9 @@ classifiers = [
   "Topic :: System :: Networking",
   "Topic :: System :: Systems Administration",
 ]
-dependencies = []
+dependencies = [
+  "dbus-next>=0.2.3",
+]
 
 [project.optional-dependencies]
 dev = [
