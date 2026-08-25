@@ -1,0 +1,42 @@
+name: Feature request
+description: Propose an improvement or new capability
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the user-visible behavior and expected scope.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - BLE daemon / protocol
+        - Web Bluetooth / PWA
+        - Cockpit Management
+        - Networking / discovery
+        - Packaging / installation
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Security or privacy impact
+      description: Note whether this changes BLE exposure, credentials, privileges, or host management.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
