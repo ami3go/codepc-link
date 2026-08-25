@@ -8,10 +8,9 @@ import re
 import shutil
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-
 
 COMMAND_TIMEOUT_SECONDS = 5
 
@@ -115,7 +114,9 @@ def _bluez_interface_available(adapter: str, interface: str) -> bool | None:
     if shutil.which("busctl") is None:
         return None
     path = f"/org/bluez/{adapter}"
-    returncode, _, _ = _run(["busctl", "--system", "introspect", "org.bluez", path, interface])
+    returncode, _, _ = _run(
+        ["busctl", "--system", "introspect", "org.bluez", path, interface]
+    )
     return returncode == 0
 
 
@@ -155,10 +156,15 @@ def collect_diagnostics() -> dict[str, Any]:
     rfkill = _rfkill_state()
 
     advertising_manager = (
-        _bluez_interface_available(adapter, "org.bluez.LEAdvertisingManager1") if adapter else False
+        _bluez_interface_available(adapter, "org.bluez.LEAdvertisingManager1")
+        if adapter
+        else False
     )
-    gatt_manager = _bluez_interface_available(adapter, "org.bluez.GattManager1") if adapter else False
+    gatt_manager = (
+        _bluez_interface_available(adapter, "org.bluez.GattManager1") if adapter else False
+    )
 
+    bluez_version = _first_version(["bluetoothctl", "--version"])
     checks: list[dict[str, str]] = []
     checks.append(
         _check(
@@ -170,8 +176,8 @@ def collect_diagnostics() -> dict[str, Any]:
     checks.append(
         _check(
             "bluez",
-            "pass" if _first_version(["bluetoothctl", "--version"]) else "fail",
-            _first_version(["bluetoothctl", "--version"]) or "bluetoothctl not found",
+            "pass" if bluez_version else "fail",
+            bluez_version or "bluetoothctl not found",
         )
     )
     checks.append(
@@ -181,22 +187,28 @@ def collect_diagnostics() -> dict[str, Any]:
             adapter or "no Bluetooth HCI adapter found",
         )
     )
+    blocked = rfkill.get("blocked") is True
     checks.append(
         _check(
             "rfkill",
-            "fail" if rfkill.get("blocked") is True else "pass",
-            "Bluetooth is blocked" if rfkill.get("blocked") is True else "not blocked or unavailable",
+            "fail" if blocked else "pass",
+            "Bluetooth is blocked" if blocked else "not blocked or unavailable",
         )
     )
 
     if advertising_manager is None:
         checks.append(_check("advertising_manager", "unknown", "busctl unavailable"))
     else:
+        advertising_detail = (
+            "LEAdvertisingManager1 available"
+            if advertising_manager
+            else "LEAdvertisingManager1 unavailable"
+        )
         checks.append(
             _check(
                 "advertising_manager",
                 "pass" if advertising_manager else "fail",
-                "LEAdvertisingManager1 available" if advertising_manager else "LEAdvertisingManager1 unavailable",
+                advertising_detail,
             )
         )
 
@@ -212,20 +224,28 @@ def collect_diagnostics() -> dict[str, Any]:
         )
 
     if supported_settings:
+        le_supported = "le" in supported_settings
         checks.append(
             _check(
                 "le_support",
-                "pass" if "le" in supported_settings else "fail",
-                "btmgmt reports LE support" if "le" in supported_settings else "btmgmt does not report LE support",
+                "pass" if le_supported else "fail",
+                (
+                    "btmgmt reports LE support"
+                    if le_supported
+                    else "btmgmt does not report LE support"
+                ),
             )
         )
+        advertising_supported = "advertising" in supported_settings
         checks.append(
             _check(
                 "advertising_support",
-                "pass" if "advertising" in supported_settings else "fail",
-                "btmgmt reports advertising support"
-                if "advertising" in supported_settings
-                else "btmgmt does not report advertising support",
+                "pass" if advertising_supported else "fail",
+                (
+                    "btmgmt reports advertising support"
+                    if advertising_supported
+                    else "btmgmt does not report advertising support"
+                ),
             )
         )
 
@@ -233,7 +253,7 @@ def collect_diagnostics() -> dict[str, Any]:
 
     return {
         "schema": 1,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "result": "pass" if not blockers else "fail",
         "system": {
             "os": {
@@ -246,7 +266,7 @@ def collect_diagnostics() -> dict[str, Any]:
             "python": platform.python_version(),
         },
         "software": {
-            "bluez": _first_version(["bluetoothctl", "--version"]),
+            "bluez": bluez_version,
             "networkmanager": _first_version(["nmcli", "--version"]),
             "cockpit": _first_version(["cockpit-bridge", "--version"]),
         },
