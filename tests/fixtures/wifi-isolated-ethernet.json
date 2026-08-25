@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "device": {
+    "id": "5e8e2ba4-2a08-42bf-b68a-7e256812240d",
+    "name": "CodePC Link - nucbox5",
+    "hostname": "nucbox5",
+    "version": "0.0.0.dev0"
+  },
+  "network": {
+    "interfaces": [
+      {
+        "name": "enp2s0",
+        "type": "ethernet",
+        "managed": true,
+        "link": "up",
+        "addresses": ["10.10.10.1/24"],
+        "gateway": null,
+        "default_route": false,
+        "internet": false
+      },
+      {
+        "name": "wlan0",
+        "type": "wifi",
+        "managed": true,
+        "link": "up",
+        "addresses": ["192.168.1.73/24"],
+        "gateway": "192.168.1.1",
+        "default_route": true,
+        "internet": true,
+        "ssid": "HomeNetwork",
+        "signal": 78
+      }
+    ],
+    "default_route_interfaces": ["wlan0"],
+    "internet": true
+  },
+  "cockpit": {
+    "port": 9090,
+    "available": true
+  },
+  "errors": []
+}
