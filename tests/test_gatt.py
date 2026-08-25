@@ -3,6 +3,7 @@ from dbus_next import Variant
 from codepc_link.ble_gatt import (
     NETWORK_STATUS_PATH,
     SYSTEM_INFO_PATH,
+    Advertisement,
     CodePCLinkGattServer,
     GattService,
     ObjectManager,
@@ -11,6 +12,7 @@ from codepc_link.ble_gatt import (
 )
 from codepc_link.core import network_status_payload, system_info_payload
 from codepc_link.protocol import (
+    MANAGEMENT_SERVICE_UUID,
     NETWORK_STATUS_CHARACTERISTIC_UUID,
     SYSTEM_INFO_CHARACTERISTIC_UUID,
 )
@@ -66,6 +68,14 @@ def test_object_manager_wires_service_and_both_characteristics() -> None:
         == NETWORK_STATUS_CHARACTERISTIC_UUID
     )
     assert SYSTEM_INFO_PATH != NETWORK_STATUS_PATH
+
+
+def test_production_advertisement_is_discoverable() -> None:
+    advertisement = Advertisement("CodePC Link")
+    assert advertisement.Type == "peripheral"
+    assert advertisement.LocalName == "CodePC Link"
+    assert advertisement.ServiceUUIDs == [MANAGEMENT_SERVICE_UUID]
+    assert advertisement.Discoverable is True
 
 
 def test_offset_option_defaults_to_zero() -> None:
