@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "network": {
+    "interfaces": [
+      {
+        "name": "br-lan",
+        "type": "bridge",
+        "managed": true,
+        "link": "up",
+        "addresses": ["10.0.0.1/24"],
+        "gateway": null,
+        "default_route": false,
+        "internet": false
+      }
+    ],
+    "default_route_interfaces": [],
+    "internet": null
+  },
+  "errors": []
+}

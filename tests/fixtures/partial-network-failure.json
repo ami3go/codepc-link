@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "network": {
+    "interfaces": [],
+    "default_route_interfaces": [],
+    "internet": null
+  },
+  "errors": [
+    {
+      "component": "network",
+      "code": "NM_UNAVAILABLE",
+      "message": "NetworkManager is unavailable"
+    }
+  ]
+}

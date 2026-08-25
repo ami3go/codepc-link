@@ -7,9 +7,12 @@ import asyncio
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 from . import __version__
+from .ble_gatt import LOCAL_NAME, CodePCLinkGattServer
 from .ble_probe import DEFAULT_LOCAL_NAME, advertise_for_test
+from .core import DEFAULT_COCKPIT_PORT, collect_status
 from .diagnostics import collect_diagnostics, render_text_report
 
 
@@ -23,7 +26,49 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command")
 
     status = subparsers.add_parser("status", help="Show normalized CodePC Link status")
+    status.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_output",
+        help="Print the complete schema-v1 JSON status",
+    )
+    status.add_argument(
+        "--output",
+        type=Path,
+        help="Write the complete schema-v1 JSON status to this file",
+    )
+    status.add_argument(
+        "--state-dir",
+        type=Path,
+        help="Override the persistent state directory (development/testing)",
+    )
+    status.add_argument(
+        "--cockpit-port",
+        type=int,
+        default=DEFAULT_COCKPIT_PORT,
+        help=f"Cockpit port, default: {DEFAULT_COCKPIT_PORT}",
+    )
     status.set_defaults(handler="status")
+
+    serve = subparsers.add_parser(
+        "serve",
+        help="Run the CodePC Link read-only BLE GATT service",
+    )
+    serve.add_argument("--adapter", default="hci0", help="BlueZ adapter, default: hci0")
+    serve.add_argument("--name", default=LOCAL_NAME, help="BLE local name")
+    serve.add_argument("--state-dir", type=Path, help="Override persistent state directory")
+    serve.add_argument(
+        "--cockpit-port",
+        type=int,
+        default=DEFAULT_COCKPIT_PORT,
+        help=f"Cockpit port, default: {DEFAULT_COCKPIT_PORT}",
+    )
+    serve.add_argument(
+        "--insecure-development",
+        action="store_true",
+        help="Allow unencrypted BLE reads; development only",
+    )
+    serve.set_defaults(handler="serve")
 
     doctor = subparsers.add_parser(
         "doctor",
@@ -63,12 +108,128 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _write_json(payload: dict[str, Any], output: Path | None) -> str:
+    serialized = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    if output:
+        output.write_text(serialized, encoding="utf-8")
+    return serialized
+
+
+def _render_status(status: dict[str, Any]) -> str:
+    device = status.get("device", {})
+    network = status.get("network", {})
+    cockpit = status.get("cockpit", {})
+    lines = [
+        f"{device.get('name') or 'CodePC Link'}",
+        f"Device ID: {device.get('id') or 'unavailable'}",
+        f"Hostname: {device.get('hostname') or 'unknown'}",
+        "",
+        "Network:",
+    ]
+
+    interfaces = network.get("interfaces", [])
+    if not interfaces:
+        lines.append("  No relevant interfaces available")
+    for interface in interfaces:
+        flags: list[str] = []
+        if interface.get("default_route"):
+            flags.append("default")
+        if interface.get("internet") is True:
+            flags.append("internet")
+        suffix = f" ({', '.join(flags)})" if flags else ""
+        lines.append(
+            f"  {interface.get('name')} [{interface.get('type')}] "
+            f"{interface.get('link')}{suffix}"
+        )
+        if interface.get("ssid"):
+            lines.append(f"    SSID: {interface['ssid']}")
+        addresses = interface.get("addresses") or []
+        lines.append(f"    Addresses: {', '.join(addresses) if addresses else 'none'}")
+
+    cockpit_state = cockpit.get("available")
+    if cockpit_state is True:
+        available = "running"
+    elif cockpit_state is False:
+        available = "not running"
+    else:
+        available = "unknown"
+    lines.extend(
+        [
+            "",
+            f"Cockpit: {available} on port {cockpit.get('port', DEFAULT_COCKPIT_PORT)}",
+        ]
+    )
+
+    errors = status.get("errors") or []
+    if errors:
+        lines.append("")
+        lines.append("Warnings:")
+        for error in errors:
+            lines.append(f"  {error.get('code')}: {error.get('message')}")
+    return "\n".join(lines)
+
+
+def _valid_port(value: int) -> bool:
+    return 1 <= value <= 65535
+
+
+def _run_status(args: argparse.Namespace) -> int:
+    if not _valid_port(args.cockpit_port):
+        print("--cockpit-port must be between 1 and 65535", file=sys.stderr)
+        return 2
+
+    status = asyncio.run(
+        collect_status(
+            state_dir=args.state_dir,
+            cockpit_port=args.cockpit_port,
+        )
+    )
+    serialized = _write_json(status, args.output)
+    if args.json_output:
+        print(serialized, end="")
+    else:
+        print(_render_status(status))
+        if args.output:
+            print(f"\nFull JSON status: {args.output}")
+    return 0
+
+
+def _run_serve(args: argparse.Namespace) -> int:
+    if not _valid_port(args.cockpit_port):
+        print("--cockpit-port must be between 1 and 65535", file=sys.stderr)
+        return 2
+
+    if args.insecure_development:
+        print(
+            "WARNING: unencrypted BLE reads enabled for development.",
+            file=sys.stderr,
+        )
+
+    server = CodePCLinkGattServer(
+        adapter=args.adapter,
+        local_name=args.name,
+        secure_reads=not args.insecure_development,
+        state_dir=args.state_dir,
+        cockpit_port=args.cockpit_port,
+    )
+    print(
+        f"Starting CodePC Link on {args.adapter} as {args.name!r} "
+        f"({'encrypted reads' if not args.insecure_development else 'development reads'})."
+    )
+    try:
+        asyncio.run(server.run_forever())
+    except KeyboardInterrupt:
+        print("\nCodePC Link stopped.")
+        return 0
+    except Exception as exc:
+        print(f"Unable to start CodePC Link: {exc}", file=sys.stderr)
+        return 2
+    return 0
+
+
 def _run_doctor(args: argparse.Namespace) -> int:
     report = collect_diagnostics()
-    serialized = json.dumps(report, indent=2, sort_keys=True) + "\n"
-
-    if args.output:
-        args.output.write_text(serialized, encoding="utf-8")
+    serialized = _write_json(report, args.output)
 
     if args.json_output:
         print(serialized, end="")
@@ -111,12 +272,14 @@ def main() -> int:
     args = parser.parse_args()
 
     handler = getattr(args, "handler", None)
+    if handler == "status":
+        return _run_status(args)
+    if handler == "serve":
+        return _run_serve(args)
     if handler == "doctor":
         return _run_doctor(args)
     if handler == "advertise-test":
         return _run_advertise_test(args)
-    if handler == "status":
-        parser.error("status is not implemented yet; see docs/ROADMAP.md")
 
     parser.print_help()
     return 0
