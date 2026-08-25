@@ -1,5 +1,8 @@
 """Temporary BLE advertiser used only for Milestone A hardware validation."""
 
+# dbus-next intentionally uses D-Bus signatures in return annotations.
+# ruff: noqa: F821, UP037
+
 from __future__ import annotations
 
 import asyncio
@@ -7,7 +10,6 @@ import asyncio
 from dbus_next.aio import MessageBus
 from dbus_next.constants import BusType, PropertyAccess
 from dbus_next.service import ServiceInterface, dbus_property, method
-
 
 ADVERTISEMENT_PATH = "/org/codepc/link/feasibility_advertisement"
 DEFAULT_LOCAL_NAME = "CodePC Link"
