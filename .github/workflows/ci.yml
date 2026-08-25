@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  python:
     name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
@@ -32,3 +32,20 @@ jobs:
         run: ruff check src tests
       - name: Test
         run: pytest
+
+  web:
+    name: Web client
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - name: Check JavaScript syntax
+        run: |
+          node --check site/js/protocol.mjs
+          node --check site/js/bluetooth.mjs
+          node --check site/js/app.mjs
+          node --check site/sw.js
+      - name: Test Web Bluetooth contract
+        run: node --test tests_web/*.test.mjs
