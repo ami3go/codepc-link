@@ -88,6 +88,13 @@ test("unscoped link-local IPv6 does not create a misleading Cockpit URL", () => 
   assert.equal(buildCockpitUrl("fe80::12/64", 9090), null);
 });
 
+test("only numeric IP addresses become Cockpit links", () => {
+  assert.equal(buildCockpitUrl("example.com", 9090), null);
+  assert.equal(buildCockpitUrl("192.168.1.2@example.com", 9090), null);
+  assert.equal(buildCockpitUrl("999.1.1.1/24", 9090), null);
+  assert.equal(buildCockpitUrl("not-an-address", 9090), null);
+});
+
 test("Cockpit targets prefer default-route/Internet candidates without hiding others", () => {
   const targets = buildCockpitTargets(systemInfo, networkStatus);
 
@@ -102,4 +109,13 @@ test("Cockpit targets prefer default-route/Internet candidates without hiding ot
 test("invalid Cockpit ports are rejected rather than interpolated into a URL", () => {
   assert.throws(() => buildCockpitUrl("192.168.1.2/24", 0), /Invalid Cockpit port/);
   assert.throws(() => buildCockpitUrl("192.168.1.2/24", "9090/path"), /Invalid Cockpit port/);
+});
+
+test("malformed backend port does not prevent target rendering", () => {
+  const targets = buildCockpitTargets(
+    { ...systemInfo, cockpit: { port: "9090/path", available: true } },
+    networkStatus,
+  );
+  assert.equal(targets.length, 4);
+  assert.ok(targets.every((target) => target.url === null));
 });
