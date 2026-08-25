@@ -1,12 +1,12 @@
 {
   "name": "CodePC Link",
   "short_name": "CodePC Link",
-  "description": "BLE discovery, status, and recovery companion for headless Linux mini-PC systems.",
+  "description": "Find a nearby CodePC mini-PC over Bluetooth and read its current network status.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#071a33",
-  "theme_color": "#0b3368",
+  "background_color": "#061526",
+  "theme_color": "#071a30",
   "icons": [
     {
       "src": "assets/codepc-link-icon.svg",

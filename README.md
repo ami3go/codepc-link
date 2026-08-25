@@ -14,7 +14,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/ami3go/codepc-link" alt="MIT License"></a>
 </p>
 
-> **Status:** pre-alpha. Milestone A feasibility tooling is merged. The Milestone B read-only BLE core is implemented and under target-hardware validation; the Web Bluetooth client is still planned for Milestone C.
+> **Status:** pre-alpha. The read-only BLE core and Milestone C Web Bluetooth/PWA software are implemented. Real target mini-PC + Android validation remains required before v0.1 is considered complete.
 
 ## What CodePC Link is for
 
@@ -59,6 +59,26 @@ Milestone B provides:
 
 Real Android/BlueZ validation remains required before Milestone B is considered closed.
 
+## Current Web Bluetooth client
+
+Milestone C now provides a static HTTPS/PWA client in `site/`:
+
+- device chooser filtered to the permanent CodePC Link service UUID
+- schema-v1 validation before any BLE payload is rendered
+- remembered-device reconnect using `navigator.bluetooth.getDevices()` where supported
+- explicit reconnect, disconnect, and status refresh flows
+- simultaneous Wi-Fi/Ethernet/multi-address presentation
+- separate link/default-route/Internet badges
+- labelled Cockpit target candidates with safe IPv4/IPv6 URL construction
+- no claim that a reported Cockpit address is reachable from the phone
+- offline app-shell caching after the first successful HTTPS load
+- controlled service-worker updates instead of forced mid-session activation
+- install prompt handling for browsers that expose it
+- no analytics/telemetry and no BLE-derived `innerHTML`
+- Node-based browser contract tests in CI
+
+The v0.1 browser validation target is Android Chrome/Chromium with Web Bluetooth support. See [Web client behavior and limitations](docs/WEB_CLIENT.md).
+
 ## Target capabilities
 
 ### v0.1 — read-only BLE + browser client
@@ -68,9 +88,9 @@ Real Android/BlueZ validation remains required before Milestone B is considered 
 - show Wi-Fi and Ethernet interfaces simultaneously
 - show all relevant IP addresses
 - distinguish link state, assigned IP, default route, and Internet connectivity
-- show Cockpit targets
+- show candidate Cockpit targets
 - open Cockpit using normal IP networking
-- cached PWA continues to show BLE status when Internet access is unavailable
+- cached PWA continues to read BLE status when Internet access is unavailable
 
 ### v0.2 — Cockpit Management
 
@@ -98,19 +118,20 @@ Wi-Fi provisioning and other privileged BLE operations are deliberately deferred
 
 ## Web Bluetooth limitation
 
-The browser client must be loaded from an HTTPS secure origin. For v0.1, a new phone needs network access once to load/cache the CodePC Link PWA. After that, the cached PWA can communicate with the mini-PC over BLE even when the mini-PC has no Internet connection.
+Web Bluetooth is limited-availability browser functionality and requires a secure context. For v0.1, a new phone needs network access once to load/cache the CodePC Link PWA and grant device permission. After that, the cached PWA can use BLE without an Internet route, subject to the browser retaining permission and Web Bluetooth availability.
 
-The initial browser target is **Android + Chrome/Chromium Web Bluetooth**. A native iOS client is a future option if browser-only Web Bluetooth remains unavailable there.
+The initial browser target is **Android + Chrome/Chromium Web Bluetooth**. CodePC Link v0.1 does not claim Safari/iOS support.
 
 ## Repository layout
 
 ```text
 assets/                 Project artwork
 src/codepc_link/        Python management core, diagnostics, and BLE service
-tests/                  Automated tests and schema fixtures
+tests/                  Python automated tests and schema fixtures
+tests_web/              Browser protocol/Web Bluetooth contract tests
 docs/                   Architecture, protocol, roadmap, and release checklists
 packaging/systemd/       systemd service definition
-site/                    GitHub Pages / future Web Bluetooth PWA origin
+site/                    GitHub Pages Web Bluetooth PWA
 .github/workflows/       CI, Pages, and tag-driven release automation
 ```
 
@@ -125,6 +146,7 @@ python -m pip install -U pip
 python -m pip install -e '.[dev]'
 ruff check src tests
 pytest
+node --test tests_web/*.test.mjs
 ```
 
 Useful commands:
@@ -144,6 +166,7 @@ codepc-link serve --insecure-development
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [BLE protocol v1](docs/PROTOCOL.md)
+- [Web Bluetooth client](docs/WEB_CLIENT.md)
 - [Milestone A feasibility](docs/FEASIBILITY.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Complications / release checklist](docs/COMPLICATIONS_CHECKLIST.md)
