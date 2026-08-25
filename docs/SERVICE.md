@@ -29,6 +29,40 @@ The service:
 
 The persistent device ID is therefore stored through systemd's state-directory mechanism and survives service restarts.
 
+## Verbose diagnostics
+
+For interactive bring-up, enable staged server diagnostics:
+
+```bash
+codepc-link serve --verbose
+```
+
+The log records the current `server.stage`, including system D-Bus connection, GATT object creation/export, BlueZ adapter introspection, manager resolution, GATT application registration, advertisement registration, characteristic reads, and cleanup. If startup fails, the CLI reports the exact stage where it failed.
+
+Use a second `-v` only when D-Bus library detail is needed:
+
+```bash
+codepc-link serve -vv
+```
+
+`-vv` enables `dbus-next` debug logging and can be substantially noisier. BLE-derived payload contents are not dumped; verbose reads log characteristic UUID, offsets, payload size, and returned byte count so diagnostics do not unnecessarily copy network-status data into logs.
+
+When running under systemd, normal Python logging is captured by journald. To temporarily run the packaged service with verbose diagnostics, use a systemd override rather than editing the packaged unit:
+
+```ini
+[Service]
+ExecStart=
+ExecStart=/usr/bin/codepc-link serve --verbose
+```
+
+Then inspect it with:
+
+```bash
+journalctl -u codepc-link.service -f
+```
+
+Remove the override after troubleshooting.
+
 ## BlueZ restart behavior
 
 The unit is `PartOf=bluetooth.service`, so an explicit `systemctl restart bluetooth.service` also restarts CodePC Link and re-registers its GATT application/advertisement.
@@ -43,4 +77,10 @@ For hardware bring-up only:
 codepc-link serve --insecure-development
 ```
 
-Do not put this flag in the production systemd unit.
+Combine it with verbose diagnostics when debugging GATT discovery or reads:
+
+```bash
+codepc-link serve --insecure-development --verbose
+```
+
+Do not put `--insecure-development` in the production systemd unit.
