@@ -1,7 +1,7 @@
 """Temporary BLE advertiser used only for Milestone A hardware validation."""
 
 # dbus-next intentionally uses D-Bus signatures in return annotations.
-# ruff: noqa: F821, UP037
+# ruff: noqa: F722, F821, UP037
 
 from __future__ import annotations
 
