@@ -3,79 +3,110 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0b3368">
-  <meta name="description" content="CodePC Link — BLE discovery, status, and recovery companion for headless Linux mini-PC systems.">
+  <meta name="theme-color" content="#071a30">
+  <meta name="description" content="CodePC Link — discover a nearby headless Linux mini-PC over Bluetooth and read its current network status.">
+  <meta name="color-scheme" content="dark">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="assets/codepc-link-icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
   <title>CodePC Link</title>
-  <style>
-    :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; background: #071a33; color: #eaf4ff; }
-    a { color: #58d8ff; }
-    .wrap { width: min(980px, calc(100% - 32px)); margin: 0 auto; padding: 56px 0 80px; }
-    .hero { display: grid; grid-template-columns: 180px 1fr; gap: 34px; align-items: center; }
-    .hero img { width: 180px; height: 180px; }
-    h1 { font-size: clamp(2.4rem, 7vw, 4.8rem); line-height: .95; margin: 0 0 18px; letter-spacing: -.04em; }
-    .lead { max-width: 720px; font-size: 1.15rem; line-height: 1.65; color: #c7def5; margin: 0; }
-    .status { display: inline-flex; margin-top: 20px; padding: 7px 11px; border-radius: 999px; background: #103c70; border: 1px solid #27598d; font-size: .9rem; }
-    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 48px; }
-    .card { padding: 22px; border: 1px solid #214d7b; border-radius: 18px; background: #0b284d; }
-    .card h2 { margin: 0 0 10px; font-size: 1.05rem; }
-    .card p { margin: 0; line-height: 1.55; color: #bed6ee; }
-    .flow { margin-top: 42px; padding: 26px; border-radius: 18px; background: #081f3e; border: 1px solid #183f69; overflow-x: auto; }
-    pre { margin: 0; color: #dceeff; font: .95rem/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
-    .button { display: inline-block; padding: 11px 16px; border-radius: 11px; text-decoration: none; font-weight: 650; background: #11bce8; color: #03233e; }
-    .button.secondary { background: transparent; color: #dceeff; border: 1px solid #3b6c9c; }
-    footer { margin-top: 56px; padding-top: 24px; border-top: 1px solid #183f69; color: #89aaca; font-size: .92rem; }
-    @media (max-width: 720px) { .hero { grid-template-columns: 1fr; } .hero img { width: 130px; height: 130px; } .grid { grid-template-columns: 1fr; } }
-  </style>
 </head>
 <body>
-  <main class="wrap">
-    <section class="hero">
-      <img src="assets/codepc-link-icon.svg" alt="CodePC Link project icon">
-      <div>
-        <h1>CodePC Link</h1>
-        <p class="lead">A lightweight Bluetooth Low Energy discovery, network-status, and recovery companion for headless Linux mini-PC systems managed with Cockpit.</p>
-        <span class="status">Early development · specification / feasibility stage</span>
-        <div class="actions">
-          <a class="button" href="https://github.com/ami3go/codepc-link">View on GitHub</a>
-          <a class="button secondary" href="https://github.com/ami3go/codepc-link/blob/main/docs/ROADMAP.md">Roadmap</a>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <img src="assets/codepc-link-icon.svg" alt="">
+        <div class="brand-copy">
+          <h1>CodePC Link</h1>
+          <p>Nearby mini-PC discovery over Bluetooth Low Energy</p>
         </div>
       </div>
+      <div class="top-actions">
+        <button id="install-button" class="button ghost small" type="button" hidden>Install app</button>
+        <a class="button ghost small" href="https://github.com/ami3go/codepc-link" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </div>
+    </header>
+
+    <section id="update-banner" class="update-banner" role="status" hidden>
+      <p>A new CodePC Link web client is ready. Update when convenient; the current page will keep running until then.</p>
+      <button id="update-button" class="button primary small" type="button">Update and reload</button>
     </section>
 
-    <section class="grid" aria-label="Project goals">
-      <article class="card"><h2>Discover</h2><p>Find a nearby CodePC over BLE without knowing its current IP address.</p></article>
-      <article class="card"><h2>Diagnose</h2><p>Read Wi-Fi/Ethernet addresses, route state, and selected health information out-of-band.</p></article>
-      <article class="card"><h2>Open Cockpit</h2><p>Use BLE to discover the right target, then hand full administration to normal IP networking.</p></article>
+    <section class="hero">
+      <article class="panel intro">
+        <span class="eyebrow">Web Bluetooth · protocol v1</span>
+        <h2>Find the right IP without already knowing the IP.</h2>
+        <p>Connect to a nearby CodePC Link device, read Wi-Fi and Ethernet state over BLE, then open Cockpit over the normal network path that makes sense for this phone.</p>
+        <div class="status-row" aria-label="Application status">
+          <span id="browser-status" class="status-pill">Checking Web Bluetooth…</span>
+          <span id="offline-status" class="status-pill">Checking app shell…</span>
+          <span id="connection-status" class="status-pill">Not connected</span>
+        </div>
+      </article>
+
+      <aside class="panel connect-panel" aria-labelledby="connect-heading">
+        <h2 id="connect-heading">Nearby device</h2>
+        <p>The device chooser only shows peripherals advertising the permanent CodePC Link management service UUID.</p>
+        <div class="button-row">
+          <button id="connect-button" class="button primary" type="button">Choose CodePC Link</button>
+          <button id="refresh-button" class="button secondary" type="button" disabled>Refresh status</button>
+          <button id="disconnect-button" class="button ghost" type="button" disabled>Disconnect</button>
+        </div>
+        <div id="remembered-devices" class="remembered" aria-live="polite"></div>
+        <p class="support-note">v0.1 targets Android Chrome/Chromium. The first device permission must be granted interactively; previously permitted devices can be reconnected after a page reload when the browser exposes them.</p>
+      </aside>
     </section>
 
-    <section class="flow" aria-label="Architecture flow">
-<pre>Android Chrome / cached PWA
-           │
-           │ BLE GATT
-           ▼
-      CodePC Link
-           │
-     Management Core
-      ┌────┴─────┐
-      │          │
- NetworkManager  systemd
-           │
-           └── normal IP ──► Cockpit</pre>
+    <section id="device-section" class="device-section" hidden aria-live="polite">
+      <article class="panel device-summary">
+        <div>
+          <h2 id="device-name">CodePC Link</h2>
+          <p id="device-meta"></p>
+        </div>
+        <p id="last-updated" class="last-updated"></p>
+      </article>
+
+      <section class="panel section-panel" aria-labelledby="network-heading">
+        <div class="section-title">
+          <div>
+            <h2 id="network-heading">Network interfaces</h2>
+            <p>Link state, addresses, default route, and Internet state are shown separately.</p>
+          </div>
+        </div>
+        <div id="interfaces" class="interfaces"></div>
+      </section>
+
+      <section class="panel section-panel" aria-labelledby="cockpit-heading">
+        <div class="section-title">
+          <div>
+            <h2 id="cockpit-heading">Cockpit targets</h2>
+            <p id="cockpit-state">Candidate addresses reported by the mini-PC.</p>
+          </div>
+        </div>
+        <div id="cockpit-targets" class="targets"></div>
+        <div class="security-note">
+          <strong>Reachability and TLS are separate from BLE.</strong> A target link only means the address was reported by CodePC Link. The phone still needs an IP route to that address, and Cockpit may show a certificate warning when opened by raw IP if its certificate is not trusted for that address.
+        </div>
+      </section>
+
+      <section id="error-section" class="panel section-panel" aria-labelledby="errors-heading" hidden>
+        <div class="section-title">
+          <div>
+            <h2 id="errors-heading">Partial status errors</h2>
+            <p>Unrelated fields remain usable when one collector reports an error.</p>
+          </div>
+        </div>
+        <ul id="errors" class="error-list"></ul>
+      </section>
     </section>
 
-    <footer>
-      <strong>Web Bluetooth client:</strong> not implemented yet. This Pages site is the intended secure HTTPS origin for the future browser client. Initial offline use will require the PWA to have been loaded and cached previously.
+    <footer class="footer">
+      <span>CodePC Link web client <span id="app-version">v0.1</span></span>
+      <span>BLE carries discovery/status only — Cockpit traffic never passes through Bluetooth.</span>
+      <a href="https://github.com/ami3go/codepc-link/blob/main/docs/WEB_CLIENT.md" target="_blank" rel="noopener noreferrer">Browser and offline limitations</a>
     </footer>
   </main>
-  <script>
-    if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => navigator.serviceWorker.register("sw.js"));
-    }
-  </script>
+
+  <script type="module" src="js/app.mjs"></script>
 </body>
 </html>
