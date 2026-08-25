@@ -19,7 +19,7 @@ See [FEASIBILITY.md](FEASIBILITY.md).
 
 Goal: stable read-only status protocol.
 
-Implemented in the Milestone B branch:
+Implemented:
 
 - [x] Persistent device identity
 - [x] Freeze normalized status schema v1 and fixtures
@@ -47,16 +47,30 @@ Protocol contract: [PROTOCOL.md](PROTOCOL.md).
 
 Goal: use CodePC Link without a custom Android application.
 
-- [ ] Deploy HTTPS Web Bluetooth frontend
-- [ ] Device chooser and permission handling
-- [ ] Disconnect/reconnect/page reload behavior
-- [ ] Multi-interface/IP presentation
-- [ ] Labelled Cockpit targets without promising reachability
-- [ ] Document raw-IP TLS/certificate behavior
-- [ ] PWA offline caching after first load
-- [ ] Safe cache/version update behavior
-- [ ] Document first-use-offline and iOS/Safari limitations
-- [ ] Run the full target-hardware integration matrix
+Software implementation:
+
+- [x] Implement the HTTPS Web Bluetooth frontend in `site/`
+- [x] Filter the device chooser to the permanent CodePC Link service UUID
+- [x] Implement permission-aware remembered-device reconnect where `getDevices()` is available
+- [x] Handle disconnect, explicit reconnect, refresh, and page reload behavior
+- [x] Render multiple interfaces and every reported IP address
+- [x] Preserve separate link/default-route/Internet presentation
+- [x] Generate labelled Cockpit target candidates without promising reachability
+- [x] Validate numeric IPv4/IPv6 targets before creating Cockpit links
+- [x] Document raw-IP TLS/certificate behavior
+- [x] Add PWA offline app-shell caching after first load
+- [x] Add controlled service-worker/cache version updates
+- [x] Document first-use-offline and browser/iOS limitations
+- [x] Add browser protocol/Web Bluetooth contract tests to CI
+
+Deployment and real-device validation gates:
+
+- [ ] Enable/verify the GitHub Pages HTTPS origin (repository setting tracked in issue #6)
+- [ ] Validate Android Chrome device chooser and retained permission behavior
+- [ ] Validate production encrypted reads through Web Bluetooth
+- [ ] Validate long characteristic reads through the browser on the real target
+- [ ] Validate cached/installed PWA startup and BLE refresh with Internet disabled
+- [ ] Run the full target-hardware integration matrix in [WEB_CLIENT.md](WEB_CLIENT.md)
 
 ## Milestone D — Cockpit Management / v0.2
 
