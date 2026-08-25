@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#071a30">
   <meta name="description" content="CodePC Link — discover a nearby headless Linux mini-PC over Bluetooth and read its current network status.">
   <meta name="color-scheme" content="dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="assets/codepc-link-icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
@@ -49,6 +50,7 @@
         <p>The device chooser only shows peripherals advertising the permanent CodePC Link management service UUID.</p>
         <div class="button-row">
           <button id="connect-button" class="button primary" type="button">Choose CodePC Link</button>
+          <button id="reconnect-button" class="button secondary" type="button" hidden>Reconnect</button>
           <button id="refresh-button" class="button secondary" type="button" disabled>Refresh status</button>
           <button id="disconnect-button" class="button ghost" type="button" disabled>Disconnect</button>
         </div>
