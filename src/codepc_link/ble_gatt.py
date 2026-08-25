@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,8 @@ from .protocol import (
     read_from_offset,
     serialize_payload,
 )
+
+LOGGER = logging.getLogger(__name__)
 
 APP_PATH = "/org/codepc/link"
 SERVICE_PATH = f"{APP_PATH}/service0"
@@ -124,17 +127,34 @@ class StatusCharacteristic(ServiceInterface):
     @method()
     async def ReadValue(self, options: "a{sv}") -> "ay":
         offset = _offset_from_options(options)
+        LOGGER.debug("gatt.read start uuid=%s offset=%d", self._uuid, offset)
         try:
             status = await collect_status(
                 state_dir=self._state_dir,
                 cockpit_port=self._cockpit_port,
             )
             payload = serialize_payload(self._payload_builder(status))
+            LOGGER.debug(
+                "gatt.read payload uuid=%s total_bytes=%d status_errors=%d",
+                self._uuid,
+                len(payload),
+                len(status.get("errors") or []),
+            )
         except PayloadTooLargeError as exc:
+            LOGGER.warning("gatt.read payload-too-large uuid=%s: %s", self._uuid, exc)
             payload = _error_payload("ble", "PAYLOAD_TOO_LARGE", str(exc))
         except Exception as exc:
+            LOGGER.exception("gatt.read failed uuid=%s", self._uuid)
             payload = _error_payload("ble", "STATUS_READ_FAILED", str(exc))
-        return read_from_offset(payload, offset)
+
+        response = read_from_offset(payload, offset)
+        LOGGER.debug(
+            "gatt.read complete uuid=%s offset=%d returned_bytes=%d",
+            self._uuid,
+            offset,
+            len(response),
+        )
+        return response
 
     def managed_properties(self) -> dict[str, Variant]:
         return {
@@ -158,6 +178,7 @@ class ObjectManager(ServiceInterface):
 
     @method()
     def GetManagedObjects(self) -> "a{oa{sa{sv}}}":
+        LOGGER.debug("gatt.object-manager GetManagedObjects requested by BlueZ")
         return {
             SERVICE_PATH: {
                 "org.bluez.GattService1": GattService.managed_properties(),
@@ -193,6 +214,7 @@ class Advertisement(ServiceInterface):
     @method()
     def Release(self):
         """BlueZ callback when the advertisement is released."""
+        LOGGER.info("ble.advertisement released by BlueZ")
 
 
 class CodePCLinkGattServer:
@@ -212,82 +234,159 @@ class CodePCLinkGattServer:
         self.secure_reads = secure_reads
         self.state_dir = state_dir
         self.cockpit_port = cockpit_port
+        self.stage = "initialized"
         self._bus: MessageBus | None = None
         self._gatt_manager: Any = None
         self._advertising_manager: Any = None
         self._application_registered = False
         self._advertisement_registered = False
 
+    def _set_stage(self, stage: str) -> None:
+        self.stage = stage
+        LOGGER.debug("server.stage=%s", stage)
+
     async def start(self) -> None:
-        bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
-        self._bus = bus
-
-        system_info = StatusCharacteristic(
-            SYSTEM_INFO_CHARACTERISTIC_UUID,
-            system_info_payload,
-            secure_reads=self.secure_reads,
-            state_dir=self.state_dir,
-            cockpit_port=self.cockpit_port,
-        )
-        network_status = StatusCharacteristic(
-            NETWORK_STATUS_CHARACTERISTIC_UUID,
-            network_status_payload,
-            secure_reads=self.secure_reads,
-            state_dir=self.state_dir,
-            cockpit_port=self.cockpit_port,
-        )
-        service = GattService()
-        object_manager = ObjectManager(system_info, network_status)
-        advertisement = Advertisement(self.local_name)
-
-        bus.export(APP_PATH, object_manager)
-        bus.export(SERVICE_PATH, service)
-        bus.export(SYSTEM_INFO_PATH, system_info)
-        bus.export(NETWORK_STATUS_PATH, network_status)
-        bus.export(ADVERTISEMENT_PATH, advertisement)
-
-        adapter_path = f"/org/bluez/{self.adapter}"
-        introspection = await bus.introspect("org.bluez", adapter_path)
-        proxy = bus.get_proxy_object("org.bluez", adapter_path, introspection)
-        self._gatt_manager = proxy.get_interface("org.bluez.GattManager1")
-        self._advertising_manager = proxy.get_interface(
-            "org.bluez.LEAdvertisingManager1"
+        LOGGER.info(
+            "ble.server starting adapter=%s name=%r security=%s state_dir=%s cockpit_port=%d",
+            self.adapter,
+            self.local_name,
+            "encrypted-read" if self.secure_reads else "development-read",
+            self.state_dir or "default",
+            self.cockpit_port,
         )
 
         try:
+            self._set_stage("dbus-connect")
+            LOGGER.debug("connecting to system D-Bus")
+            bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+            self._bus = bus
+            LOGGER.debug("system D-Bus connected")
+
+            self._set_stage("build-gatt-objects")
+            system_info = StatusCharacteristic(
+                SYSTEM_INFO_CHARACTERISTIC_UUID,
+                system_info_payload,
+                secure_reads=self.secure_reads,
+                state_dir=self.state_dir,
+                cockpit_port=self.cockpit_port,
+            )
+            network_status = StatusCharacteristic(
+                NETWORK_STATUS_CHARACTERISTIC_UUID,
+                network_status_payload,
+                secure_reads=self.secure_reads,
+                state_dir=self.state_dir,
+                cockpit_port=self.cockpit_port,
+            )
+            service = GattService()
+            object_manager = ObjectManager(system_info, network_status)
+            advertisement = Advertisement(self.local_name)
+            LOGGER.debug(
+                "GATT objects built service_uuid=%s system_info_uuid=%s network_status_uuid=%s",
+                MANAGEMENT_SERVICE_UUID,
+                SYSTEM_INFO_CHARACTERISTIC_UUID,
+                NETWORK_STATUS_CHARACTERISTIC_UUID,
+            )
+
+            self._set_stage("export-dbus-objects")
+            exports = (
+                (APP_PATH, object_manager),
+                (SERVICE_PATH, service),
+                (SYSTEM_INFO_PATH, system_info),
+                (NETWORK_STATUS_PATH, network_status),
+                (ADVERTISEMENT_PATH, advertisement),
+            )
+            for path, interface in exports:
+                LOGGER.debug("exporting D-Bus object path=%s", path)
+                bus.export(path, interface)
+            LOGGER.debug("all D-Bus objects exported")
+
+            adapter_path = f"/org/bluez/{self.adapter}"
+            self._set_stage("introspect-adapter")
+            LOGGER.debug("introspecting BlueZ adapter path=%s", adapter_path)
+            introspection = await bus.introspect("org.bluez", adapter_path)
+            proxy = bus.get_proxy_object("org.bluez", adapter_path, introspection)
+            LOGGER.debug("BlueZ adapter introspection complete")
+
+            self._set_stage("resolve-managers")
+            self._gatt_manager = proxy.get_interface("org.bluez.GattManager1")
+            self._advertising_manager = proxy.get_interface(
+                "org.bluez.LEAdvertisingManager1"
+            )
+            LOGGER.debug("GattManager1 and LEAdvertisingManager1 resolved")
+
+            self._set_stage("register-gatt-application")
+            LOGGER.debug("registering GATT application path=%s", APP_PATH)
             await self._gatt_manager.call_register_application(APP_PATH, {})
             self._application_registered = True
+            LOGGER.info("ble.gatt application registered path=%s", APP_PATH)
+
+            self._set_stage("register-advertisement")
+            LOGGER.debug(
+                "registering advertisement path=%s name=%r service_uuid=%s",
+                ADVERTISEMENT_PATH,
+                self.local_name,
+                MANAGEMENT_SERVICE_UUID,
+            )
             await self._advertising_manager.call_register_advertisement(
                 ADVERTISEMENT_PATH,
                 {},
             )
             self._advertisement_registered = True
+            LOGGER.info("ble.advertisement registered path=%s", ADVERTISEMENT_PATH)
+
+            self._set_stage("ready")
+            LOGGER.info(
+                "ble.server ready adapter=%s service_uuid=%s",
+                self.adapter,
+                MANAGEMENT_SERVICE_UUID,
+            )
         except Exception:
-            await self.stop()
+            failed_stage = self.stage
+            LOGGER.exception("ble.server startup failed stage=%s", failed_stage)
+            await self.stop(reason="startup-failure")
+            self.stage = f"failed:{failed_stage}"
             raise
 
-    async def stop(self) -> None:
+    async def stop(self, *, reason: str = "shutdown") -> None:
+        LOGGER.info("ble.server stopping reason=%s stage=%s", reason, self.stage)
+
         if self._advertisement_registered and self._advertising_manager is not None:
+            self._set_stage("unregister-advertisement")
+            LOGGER.debug("unregistering advertisement path=%s", ADVERTISEMENT_PATH)
             try:
                 await self._advertising_manager.call_unregister_advertisement(
                     ADVERTISEMENT_PATH
                 )
+                LOGGER.debug("advertisement unregistered")
+            except Exception:
+                LOGGER.exception("failed to unregister advertisement")
             finally:
                 self._advertisement_registered = False
 
         if self._application_registered and self._gatt_manager is not None:
+            self._set_stage("unregister-gatt-application")
+            LOGGER.debug("unregistering GATT application path=%s", APP_PATH)
             try:
                 await self._gatt_manager.call_unregister_application(APP_PATH)
+                LOGGER.debug("GATT application unregistered")
+            except Exception:
+                LOGGER.exception("failed to unregister GATT application")
             finally:
                 self._application_registered = False
 
         if self._bus is not None:
+            self._set_stage("dbus-disconnect")
+            LOGGER.debug("disconnecting system D-Bus")
             self._bus.disconnect()
             self._bus = None
+
+        self._set_stage("stopped")
+        LOGGER.info("ble.server stopped")
 
     async def run_forever(self) -> None:
         await self.start()
         try:
+            LOGGER.debug("server event loop waiting for shutdown")
             await asyncio.Event().wait()
         finally:
             await self.stop()

@@ -3,6 +3,7 @@ from dbus_next import Variant
 from codepc_link.ble_gatt import (
     NETWORK_STATUS_PATH,
     SYSTEM_INFO_PATH,
+    CodePCLinkGattServer,
     GattService,
     ObjectManager,
     StatusCharacteristic,
@@ -70,3 +71,11 @@ def test_object_manager_wires_service_and_both_characteristics() -> None:
 def test_offset_option_defaults_to_zero() -> None:
     assert _offset_from_options({}) == 0
     assert _offset_from_options({"offset": Variant("q", 7)}) == 7
+
+
+def test_server_tracks_current_startup_stage() -> None:
+    server = CodePCLinkGattServer()
+    assert server.stage == "initialized"
+
+    server._set_stage("register-advertisement")
+    assert server.stage == "register-advertisement"

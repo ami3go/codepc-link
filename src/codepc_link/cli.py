@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import sys
 from pathlib import Path
 from typing import Any
@@ -67,6 +68,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--insecure-development",
         action="store_true",
         help="Allow unencrypted BLE reads; development only",
+    )
+    serve.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help=(
+            "Show staged BLE/GATT startup and read diagnostics; repeat as -vv "
+            "to also enable dbus-next debug logging"
+        ),
     )
     serve.set_defaults(handler="serve")
 
@@ -173,6 +184,20 @@ def _valid_port(value: int) -> bool:
     return 1 <= value <= 65535
 
 
+def _configure_serve_logging(verbose: int) -> None:
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S%z",
+        stream=sys.stderr,
+        force=True,
+    )
+    logging.getLogger("dbus_next").setLevel(
+        logging.DEBUG if verbose >= 2 else logging.WARNING
+    )
+
+
 def _run_status(args: argparse.Namespace) -> int:
     if not _valid_port(args.cockpit_port):
         print("--cockpit-port must be between 1 and 65535", file=sys.stderr)
@@ -199,6 +224,8 @@ def _run_serve(args: argparse.Namespace) -> int:
         print("--cockpit-port must be between 1 and 65535", file=sys.stderr)
         return 2
 
+    _configure_serve_logging(args.verbose)
+
     if args.insecure_development:
         print(
             "WARNING: unencrypted BLE reads enabled for development.",
@@ -216,13 +243,22 @@ def _run_serve(args: argparse.Namespace) -> int:
         f"Starting CodePC Link on {args.adapter} as {args.name!r} "
         f"({'encrypted reads' if not args.insecure_development else 'development reads'})."
     )
+    if args.verbose:
+        print(
+            f"Verbose diagnostics enabled (level {args.verbose}); "
+            "watch server.stage=... to see startup progress.",
+            file=sys.stderr,
+        )
     try:
         asyncio.run(server.run_forever())
     except KeyboardInterrupt:
         print("\nCodePC Link stopped.")
         return 0
     except Exception as exc:
-        print(f"Unable to start CodePC Link: {exc}", file=sys.stderr)
+        print(
+            f"Unable to start CodePC Link at stage {server.stage}: {exc}",
+            file=sys.stderr,
+        )
         return 2
     return 0
 
