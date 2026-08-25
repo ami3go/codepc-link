@@ -45,14 +45,17 @@ class FakeDevice extends EventTarget {
     super();
     this.name = "CodePC Link - testbox";
     this.service = service;
+    this.connectCount = 0;
     this.gatt = {
       connected: false,
       connect: async () => {
+        this.connectCount += 1;
         this.gatt.connected = true;
         return this.gatt;
       },
       getPrimaryService: async (uuid) => {
         assert.equal(uuid, MANAGEMENT_SERVICE_UUID);
+        if (this.service instanceof Error) throw this.service;
         return this.service;
       },
       disconnect: () => {
@@ -95,7 +98,16 @@ function fixture() {
     network: {
       internet: true,
       default_route_interfaces: ["wlan0"],
-      interfaces: [{ name: "wlan0", type: "wifi", link: "up", addresses: ["192.168.1.10/24"], default_route: true, internet: true }],
+      interfaces: [
+        {
+          name: "wlan0",
+          type: "wifi",
+          link: "up",
+          addresses: ["192.168.1.10/24"],
+          default_route: true,
+          internet: true,
+        },
+      ],
     },
     errors: [],
   });
@@ -106,14 +118,17 @@ function fixture() {
 }
 
 test("device chooser is filtered to the permanent management service", async () => {
-  const { bluetooth } = fixture();
+  const { bluetooth, systemCharacteristic, networkCharacteristic } = fixture();
   const client = new CodePcBluetoothClient(bluetooth);
 
-  await client.requestDevice();
+  const status = await client.requestDevice();
 
   assert.deepEqual(bluetooth.lastRequestOptions.filters, [{ services: [MANAGEMENT_SERVICE_UUID] }]);
   assert.deepEqual(bluetooth.lastRequestOptions.optionalServices, [MANAGEMENT_SERVICE_UUID]);
   assert.equal(client.connected, true);
+  assert.equal(status.systemInfo.device.hostname, "testbox");
+  assert.equal(systemCharacteristic.readCount, 1);
+  assert.equal(networkCharacteristic.readCount, 1);
 });
 
 test("status reads both protocol-v1 characteristics", async () => {
@@ -137,7 +152,7 @@ test("remembered devices can be enumerated without opening a chooser", async () 
   assert.equal(bluetooth.lastRequestOptions, null);
 });
 
-test("disconnect clears the active GATT handles and emits a disconnect event", async () => {
+test("disconnect clears GATT handles and reconnect reuses the selected device", async () => {
   const { bluetooth, device } = fixture();
   const client = new CodePcBluetoothClient(bluetooth);
   let disconnectEvents = 0;
@@ -150,4 +165,23 @@ test("disconnect clears the active GATT handles and emits a disconnect event", a
   assert.equal(client.server, null);
   assert.equal(client.service, null);
   assert.equal(disconnectEvents, 1);
+
+  const status = await client.reconnect();
+  assert.equal(client.connected, true);
+  assert.equal(status.systemInfo.device.hostname, "testbox");
+  assert.equal(device.connectCount, 2);
+});
+
+test("failed service discovery leaves the client disconnected and retryable", async () => {
+  const device = new FakeDevice(new Error("management service missing"));
+  const bluetooth = new FakeBluetooth(device);
+  const client = new CodePcBluetoothClient(bluetooth);
+
+  await assert.rejects(() => client.connect(device), /management service missing/);
+
+  assert.equal(client.connected, false);
+  assert.equal(client.server, null);
+  assert.equal(client.service, null);
+  assert.equal(client.device, device);
+  assert.equal(device.gatt.connected, false);
 });
