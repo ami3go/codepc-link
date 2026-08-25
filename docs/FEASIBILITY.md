@@ -73,13 +73,30 @@ Do not intentionally reset production hardware remotely unless you have another 
 
 Milestone A is not complete until a real Android phone sees an advertisement from the target mini-PC.
 
-The next implementation step will add the minimal CodePC Link test advertisement. The acceptance test is:
+Start the temporary feasibility advertiser:
 
-1. Start the CodePC Link test advertiser on the mini-PC.
-2. Open a BLE scanner on Android.
-3. Confirm the advertised local name/service is visible.
-4. Stop and restart Bluetooth on the mini-PC.
-5. Confirm advertising can be restored.
+```bash
+codepc-link advertise-test
+```
+
+It advertises the local name `CodePC Link` on `hci0` until Ctrl-C. To use another adapter or a timed run:
+
+```bash
+codepc-link advertise-test --adapter hci1 --seconds 60
+```
+
+This command is intentionally only a feasibility probe. It does not use the final CodePC Link service UUIDs and it does not expose GATT status data yet.
+
+Acceptance test:
+
+1. Run `codepc-link doctor` and confirm no Bluetooth host blocker is reported.
+2. Run `codepc-link advertise-test` on the mini-PC.
+3. Open a BLE scanner on Android.
+4. Confirm `CodePC Link` is visible.
+5. Stop the test advertiser.
+6. Restart `bluetooth.service` on the mini-PC.
+7. Run `codepc-link doctor` again.
+8. Start the advertiser again and confirm Android can rediscover it.
 
 ## Milestone A exit criteria
 
