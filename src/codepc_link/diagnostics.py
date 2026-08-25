@@ -120,6 +120,30 @@ def _bluez_interface_available(adapter: str, interface: str) -> bool | None:
     return returncode == 0
 
 
+def _parse_rfkill_flag(value: Any) -> bool | None:
+    """Normalize rfkill JSON blocked-state values across util-linux versions.
+
+    rfkill may encode ``soft``/``hard`` as booleans, numbers, or strings such
+    as ``"yes"``/``"no"`` or ``"blocked"``/``"unblocked"``. Never use
+    ``bool(value)`` here because ``bool("no")`` is True.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        if value == 0:
+            return False
+        if value == 1:
+            return True
+        return None
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"yes", "true", "1", "blocked"}:
+            return True
+        if normalized in {"no", "false", "0", "unblocked"}:
+            return False
+    return None
+
+
 def _rfkill_state() -> dict[str, Any]:
     if shutil.which("rfkill") is None:
         return {"available": False, "blocked": None, "devices": []}
@@ -138,7 +162,17 @@ def _rfkill_state() -> dict[str, Any]:
         for entry in payload.get("rfkilldevices", [])
         if str(entry.get("type", "")).lower() == "bluetooth"
     ]
-    blocked = any(bool(entry.get("soft")) or bool(entry.get("hard")) for entry in devices)
+    states = [
+        _parse_rfkill_flag(entry.get(field))
+        for entry in devices
+        for field in ("soft", "hard")
+    ]
+    if any(state is True for state in states):
+        blocked: bool | None = True
+    elif states and all(state is False for state in states):
+        blocked = False
+    else:
+        blocked = None
     return {"available": True, "blocked": blocked, "devices": devices}
 
 
