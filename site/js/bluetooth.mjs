@@ -41,8 +41,7 @@ export class CodePcBluetoothClient extends EventTarget {
       filters: [{ services: [MANAGEMENT_SERVICE_UUID] }],
       optionalServices: [MANAGEMENT_SERVICE_UUID],
     });
-    await this.connect(device);
-    return device;
+    return this.connect(device);
   }
 
   async getRememberedDevices() {
