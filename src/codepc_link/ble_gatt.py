@@ -211,6 +211,10 @@ class Advertisement(ServiceInterface):
     def LocalName(self) -> "s":
         return self._local_name
 
+    @dbus_property(access=PropertyAccess.READ)
+    def Discoverable(self) -> "b":
+        return True
+
     @method()
     def Release(self):
         """BlueZ callback when the advertisement is released."""
@@ -322,7 +326,7 @@ class CodePCLinkGattServer:
 
             self._set_stage("register-advertisement")
             LOGGER.debug(
-                "registering advertisement path=%s name=%r service_uuid=%s",
+                "registering advertisement path=%s name=%r service_uuid=%s discoverable=true",
                 ADVERTISEMENT_PATH,
                 self.local_name,
                 MANAGEMENT_SERVICE_UUID,
