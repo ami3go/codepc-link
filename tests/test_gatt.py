@@ -43,7 +43,7 @@ def test_development_characteristics_use_plain_read() -> None:
     assert characteristic.Flags == ["read"]
 
 
-def test_object_manager_exposes_service_and_both_characteristics() -> None:
+def test_object_manager_wires_service_and_both_characteristics() -> None:
     system_info = _characteristic(
         SYSTEM_INFO_CHARACTERISTIC_UUID,
         system_info_payload,
@@ -55,11 +55,16 @@ def test_object_manager_exposes_service_and_both_characteristics() -> None:
         True,
     )
     manager = ObjectManager(system_info, network_status)
-    objects = manager.GetManagedObjects()
 
     assert GattService.managed_properties()["Primary"].value is True
-    assert SYSTEM_INFO_PATH in objects
-    assert NETWORK_STATUS_PATH in objects
+    assert manager._system_info is system_info
+    assert manager._network_status is network_status
+    assert system_info.managed_properties()["UUID"].value == SYSTEM_INFO_CHARACTERISTIC_UUID
+    assert (
+        network_status.managed_properties()["UUID"].value
+        == NETWORK_STATUS_CHARACTERISTIC_UUID
+    )
+    assert SYSTEM_INFO_PATH != NETWORK_STATUS_PATH
 
 
 def test_offset_option_defaults_to_zero() -> None:
