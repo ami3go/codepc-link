@@ -1,7 +1,7 @@
 """BlueZ GATT server for the CodePC Link read-only management service."""
 
 # dbus-next uses D-Bus signature strings as annotations.
-# ruff: noqa: F821, UP037
+# ruff: noqa: F722, F821, UP037
 
 from __future__ import annotations
 
