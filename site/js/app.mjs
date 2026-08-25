@@ -10,6 +10,7 @@ let reloadForWorkerUpdate = false;
 
 const ui = {
   connect: document.querySelector("#connect-button"),
+  reconnect: document.querySelector("#reconnect-button"),
   disconnect: document.querySelector("#disconnect-button"),
   refresh: document.querySelector("#refresh-button"),
   remembered: document.querySelector("#remembered-devices"),
@@ -58,7 +59,10 @@ function setConnection(text, tone = "neutral") {
 
 function updateControls() {
   const connected = client.connected;
+  const canReconnect = Boolean(client.device && !connected);
   ui.connect.disabled = busy || !client.supported;
+  ui.reconnect.hidden = !canReconnect;
+  ui.reconnect.disabled = busy || !canReconnect;
   ui.disconnect.disabled = busy || !connected;
   ui.refresh.disabled = busy || !connected;
 }
@@ -103,7 +107,12 @@ function renderInterfaces(networkStatus) {
     );
 
     const badges = element("div", "badge-row");
-    badges.append(badge(iface.link === "up" ? "Link up" : String(iface.link || "Link unknown"), iface.link === "up" ? "positive" : "neutral"));
+    badges.append(
+      badge(
+        iface.link === "up" ? "Link up" : String(iface.link || "Link unknown"),
+        iface.link === "up" ? "positive" : "neutral",
+      ),
+    );
     if (iface.default_route) badges.append(badge("Default route", "accent"));
     if (iface.internet === true) badges.append(badge("Internet", "positive"));
     if (iface.internet === false && iface.default_route) badges.append(badge("No Internet", "warning"));
@@ -169,7 +178,7 @@ function renderCockpit(systemInfo, networkStatus) {
       row.append(link);
     } else {
       const unavailable = element("span", "target-unavailable", "No direct URL");
-      unavailable.title = "A link-local IPv6 address needs an interface scope that schema v1 does not provide.";
+      unavailable.title = "The reported address cannot be represented as a safe direct Cockpit IP target.";
       row.append(unavailable);
     }
 
@@ -184,7 +193,11 @@ function renderStatus(status) {
 
   ui.deviceSection.hidden = false;
   ui.deviceName.textContent = String(device.name || client.device?.name || "CodePC Link");
-  const identityParts = [device.hostname, device.version ? `daemon ${device.version}` : null, device.id].filter(Boolean);
+  const identityParts = [
+    device.hostname,
+    device.version ? `daemon ${device.version}` : null,
+    device.id,
+  ].filter(Boolean);
   ui.deviceMeta.textContent = identityParts.join(" · ");
   ui.lastUpdated.textContent = `Last BLE read: ${readAt.toLocaleString()}`;
 
@@ -193,10 +206,13 @@ function renderStatus(status) {
   renderErrors(systemInfo, networkStatus);
 }
 
-async function readAndRender() {
-  const status = await client.readStatus();
+function renderConnectedStatus(status) {
   renderStatus(status);
   setConnection(`Connected to ${client.device?.name || "CodePC Link"}`, "positive");
+}
+
+async function readAndRender() {
+  renderConnectedStatus(await client.readStatus());
 }
 
 async function runAction(action) {
@@ -213,22 +229,23 @@ async function runAction(action) {
 
 async function chooseDevice() {
   try {
-    await runAction(async () => {
-      await client.requestDevice();
-      await readAndRender();
-    });
+    await runAction(async () => renderConnectedStatus(await client.requestDevice()));
   } catch {
     // The visible status already contains the actionable error.
   }
 }
 
+async function reconnectCurrent() {
+  try {
+    await runAction(async () => renderConnectedStatus(await client.reconnect()));
+  } catch {
+    // The selected device remains available for another retry or a new chooser.
+  }
+}
+
 async function connectRemembered(device) {
   try {
-    await runAction(async () => {
-      const status = await client.connect(device);
-      renderStatus(status);
-      setConnection(`Connected to ${device.name || "CodePC Link"}`, "positive");
-    });
+    await runAction(async () => renderConnectedStatus(await client.connect(device)));
   } catch {
     // Keep the remembered device button so the user can retry.
   }
@@ -237,7 +254,13 @@ async function connectRemembered(device) {
 function renderRememberedDevices(devices) {
   ui.remembered.replaceChildren();
   if (devices.length === 0) {
-    ui.remembered.append(element("p", "muted remembered-empty", "Previously permitted CodePC Link devices will appear here after the first connection."));
+    ui.remembered.append(
+      element(
+        "p",
+        "muted remembered-empty",
+        "Previously permitted CodePC Link devices will appear here after the first connection.",
+      ),
+    );
     return;
   }
 
@@ -267,7 +290,9 @@ async function initializeBluetooth() {
 
   try {
     const available = await client.getAvailability();
-    ui.browserStatus.textContent = available ? "Web Bluetooth ready" : "Web Bluetooth is supported, but Bluetooth is currently unavailable.";
+    ui.browserStatus.textContent = available
+      ? "Web Bluetooth ready"
+      : "Web Bluetooth is supported, but Bluetooth is currently unavailable.";
     ui.browserStatus.dataset.tone = available ? "positive" : "warning";
     renderRememberedDevices(await client.getRememberedDevices());
   } catch (error) {
@@ -279,12 +304,13 @@ async function initializeBluetooth() {
 
 client.addEventListener("disconnect", () => {
   const name = client.device?.name || "CodePC Link";
-  setConnection(`Disconnected from ${name}. Use the remembered-device button to reconnect.`, "warning");
+  setConnection(`Disconnected from ${name}. Reconnect when the device is back in range.`, "warning");
   updateControls();
 });
 
 client.addEventListener("connect", updateControls);
 ui.connect.addEventListener("click", chooseDevice);
+ui.reconnect.addEventListener("click", reconnectCurrent);
 ui.disconnect.addEventListener("click", () => client.disconnect());
 ui.refresh.addEventListener("click", async () => {
   try {
@@ -348,5 +374,7 @@ initializeBluetooth();
 // Keep the most recently rendered BLE data visible when the IP network drops.
 // It is diagnostic state, not a claim that it is still current.
 window.addEventListener("offline", () => {
-  if (lastStatus) ui.lastUpdated.textContent += " · cached on this page";
+  if (lastStatus && !ui.lastUpdated.textContent.includes("cached on this page")) {
+    ui.lastUpdated.textContent += " · cached on this page";
+  }
 });
