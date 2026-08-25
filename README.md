@@ -14,7 +14,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/ami3go/codepc-link" alt="MIT License"></a>
 </p>
 
-> **Status:** pre-alpha / feasibility and specification stage. The repository infrastructure is ready; the BLE daemon and Web Bluetooth client are not implemented yet.
+> **Status:** pre-alpha. Milestone A feasibility tooling is merged. The Milestone B read-only BLE core is implemented and under target-hardware validation; the Web Bluetooth client is still planned for Milestone C.
 
 ## What CodePC Link is for
 
@@ -42,6 +42,22 @@ Android Chrome / cached PWA
 ```
 
 BLE is for discovery, diagnostics, and recovery. **Cockpit itself is not tunnelled over BLE.**
+
+## Current BLE core
+
+Milestone B provides:
+
+- persistent device identity in `/var/lib/codepc-link/device-id`
+- schema-v1 normalized status shared by CLI, BLE, and future Cockpit Management
+- NetworkManager-backed Wi-Fi/Ethernet/bridge/bond normalization
+- separate link, address, default-route, and Internet states
+- permanent CodePC Link service/characteristic UUIDs
+- read-only `SYSTEM_INFO` and `NETWORK_STATUS` GATT characteristics
+- encrypted BLE reads by default
+- 16 KiB payload guard and GATT long-read offset handling
+- hardened systemd unit template
+
+Real Android/BlueZ validation remains required before Milestone B is considered closed.
 
 ## Target capabilities
 
@@ -71,6 +87,7 @@ Wi-Fi provisioning and other privileged BLE operations are deliberately deferred
 ## Important design rules
 
 - v0.1 BLE is read-only.
+- Production BLE status reads require an encrypted BLE link.
 - NetworkManager is the authoritative network-management source.
 - BLE and Cockpit consume one normalized Management Core.
 - The first IP returned by the OS is **not** assumed to be the correct address.
@@ -89,9 +106,10 @@ The initial browser target is **Android + Chrome/Chromium Web Bluetooth**. A nat
 
 ```text
 assets/                 Project artwork
-src/codepc_link/        Python daemon/CLI package (currently scaffold only)
-tests/                   Automated tests
-docs/                    Architecture, roadmap, and release checklists
+src/codepc_link/        Python management core, diagnostics, and BLE service
+tests/                  Automated tests and schema fixtures
+docs/                   Architecture, protocol, roadmap, and release checklists
+packaging/systemd/       systemd service definition
 site/                    GitHub Pages / future Web Bluetooth PWA origin
 .github/workflows/       CI, Pages, and tag-driven release automation
 ```
@@ -109,15 +127,24 @@ ruff check src tests
 pytest
 ```
 
-The development CLI currently exists only as a scaffold:
+Useful commands:
 
 ```bash
-codepc-link --version
+codepc-link doctor
+codepc-link doctor --json
+codepc-link status
+codepc-link status --json
+codepc-link advertise-test --seconds 30
+codepc-link serve --insecure-development
 ```
+
+`--insecure-development` deliberately disables encrypted-read protection and must only be used for local bring-up/testing.
 
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
+- [BLE protocol v1](docs/PROTOCOL.md)
+- [Milestone A feasibility](docs/FEASIBILITY.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Complications / release checklist](docs/COMPLICATIONS_CHECKLIST.md)
 - [Contributing](CONTRIBUTING.md)
@@ -125,7 +152,7 @@ codepc-link --version
 - [Release procedure](RELEASING.md)
 - [Recommended repository settings](docs/REPOSITORY_SETTINGS.md)
 
-Project site: **https://ami3go.github.io/codepc-link/**
+Project site: **https://ami3go.github.io/codepc-link/** (requires the one-time Pages repository setting tracked in issue #6).
 
 ## Releases
 
