@@ -15,6 +15,18 @@ sudo systemctl enable --now codepc-link.service
 
 For source/virtual-environment testing, run `codepc-link serve` directly instead of modifying the production unit path.
 
+The production state directory `/var/lib/codepc-link` is intentionally owned by the systemd service. Do not `chown` it to a development user. For source/virtual-environment work, use one persistent per-user state directory for every CodePC Link command:
+
+```bash
+export CODEPC_LINK_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/codepc-link"
+mkdir -p "$CODEPC_LINK_STATE_DIR"
+
+codepc-link status
+codepc-link serve --insecure-development --verbose
+```
+
+This keeps the development device UUID stable while preserving the production service ownership and permissions. `--state-dir PATH` remains available when a one-command override is preferred.
+
 ## Security defaults
 
 The service:

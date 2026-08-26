@@ -76,6 +76,30 @@ def test_container_and_veth_interfaces_are_hidden() -> None:
     assert normalized["interfaces"] == []
 
 
+def test_wifi_p2p_pseudo_device_is_hidden() -> None:
+    normalized = normalize_devices(
+        [
+            {
+                "name": "wlp1s0",
+                "type": "wifi",
+                "managed": True,
+                "state": 30,
+                "addresses": [],
+            },
+            {
+                "name": "p2p-dev-wlp1s0",
+                "type": "wifi-p2p",
+                "managed": True,
+                "state": 30,
+                "addresses": [],
+            },
+        ],
+        None,
+    )
+
+    assert [item["name"] for item in normalized["interfaces"]] == ["wlp1s0"]
+
+
 def test_route_presence_does_not_imply_internet() -> None:
     normalized = normalize_devices(
         [

@@ -45,14 +45,19 @@ DEVICE_TYPES = {
     24: "ovs-interface",
     25: "ovs-port",
     26: "ovs-bridge",
+    27: "wpan",
+    28: "6lowpan",
     29: "wireguard",
+    30: "wifi-p2p",
     31: "vrf",
     32: "loopback",
+    33: "hsr",
     34: "ipvlan",
+    35: "geneve",
 }
 
 HIDDEN_NAMES = {"lo", "docker0", "podman0", "virbr0"}
-HIDDEN_TYPES = {"loopback", "veth", "tun", "wireguard"}
+HIDDEN_TYPES = {"loopback", "veth", "tun", "wireguard", "wifi-p2p"}
 
 
 def _unwrap(value: Any) -> Any:
