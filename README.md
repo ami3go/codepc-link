@@ -141,7 +141,7 @@ site/                    GitHub Pages Web Bluetooth PWA
 git clone https://github.com/ami3go/codepc-link.git
 cd codepc-link
 python -m venv .venv
-. .venv/bin/activate
+source .venv/bin/activate
 python -m pip install -U pip
 python -m pip install -e '.[dev]'
 ruff check src tests
