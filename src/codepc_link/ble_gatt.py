@@ -290,7 +290,8 @@ class CodePCLinkGattServer:
             advertisement = Advertisement(self.local_name)
             pairing_agent = PairingAgent() if self.secure_reads else None
             LOGGER.debug(
-                "GATT objects built service_uuid=%s system_info_uuid=%s network_status_uuid=%s pairing_agent=%s",
+                "GATT objects built service_uuid=%s system_info_uuid=%s "
+                "network_status_uuid=%s pairing_agent=%s",
                 MANAGEMENT_SERVICE_UUID,
                 SYSTEM_INFO_CHARACTERISTIC_UUID,
                 NETWORK_STATUS_CHARACTERISTIC_UUID,
