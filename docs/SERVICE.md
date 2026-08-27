@@ -38,8 +38,19 @@ The service:
 - limits address families to `AF_UNIX` because Bluetooth access is through BlueZ D-Bus
 - uses a read-only system filesystem apart from the managed state directory
 - starts BLE characteristics with encrypted reads enabled
+- registers a BlueZ `org.bluez.Agent1` with `NoInputNoOutput` capability for headless Just Works pairing
 
 The persistent device ID is therefore stored through systemd's state-directory mechanism and survives service restarts.
+
+### Built-in pairing agent
+
+Encrypted GATT reads require BlueZ to establish an encrypted link. A headless CodePC must not depend on a GNOME/KDE `bluetoothctl` agent being present, so secure `codepc-link serve` now registers its own agent at `/org/codepc/link/agent0` and requests it as BlueZ's default agent while the server is running.
+
+The agent uses `NoInputNoOutput`, which maps the current read-only v0.1 service to Bluetooth Just Works pairing. It accepts incoming Just Works authorization and confirmation callbacks, rejects pairing flows that require local PIN/passkey input, and only authorizes the CodePC Link management service when BlueZ asks for service authorization.
+
+This provides link encryption but not MITM-authenticated pairing. That is acceptable only for the current read-only status surface. Privileged BLE writes remain blocked until a stronger authorization and confirmation design is implemented.
+
+The agent is unregistered during normal shutdown or startup rollback. `--insecure-development` skips pairing-agent registration because its characteristics use plain `read` rather than `encrypt-read`.
 
 ## Verbose diagnostics
 
@@ -49,7 +60,25 @@ For interactive bring-up, enable staged server diagnostics:
 codepc-link serve --verbose
 ```
 
-The log records the current `server.stage`, including system D-Bus connection, GATT object creation/export, BlueZ adapter introspection, manager resolution, GATT application registration, advertisement registration, characteristic reads, and cleanup. If startup fails, the CLI reports the exact stage where it failed.
+The log records the current `server.stage`, including system D-Bus connection, GATT object creation/export, BlueZ adapter introspection, pairing-agent registration, GATT application registration, advertisement registration, pairing callbacks, characteristic reads, and cleanup. If startup fails, the CLI reports the exact stage where it failed.
+
+A healthy secure startup now includes stages similar to:
+
+```text
+server.stage=resolve-agent-manager
+server.stage=register-pairing-agent
+ble.pairing agent registered ... capability=NoInputNoOutput default=true
+server.stage=register-gatt-application
+server.stage=register-advertisement
+server.stage=ready
+```
+
+During an incoming Just Works pairing attempt, verbose logging can include:
+
+```text
+ble.pairing Just Works authorization accepted device=/org/bluez/hci0/dev_...
+ble.pairing confirmation accepted device=/org/bluez/hci0/dev_... passkey=......
+```
 
 Use a second `-v` only when D-Bus library detail is needed:
 
@@ -77,7 +106,7 @@ Remove the override after troubleshooting.
 
 ## BlueZ restart behavior
 
-The unit is `PartOf=bluetooth.service`, so an explicit `systemctl restart bluetooth.service` also restarts CodePC Link and re-registers its GATT application/advertisement.
+The unit is `PartOf=bluetooth.service`, so an explicit `systemctl restart bluetooth.service` also restarts CodePC Link and re-registers its pairing agent, GATT application, and advertisement.
 
 This behavior must still be verified on the target mini-PC. Unexpected BlueZ crashes/restarts are part of the hardware/integration test matrix and may require an additional D-Bus owner-change watchdog if the target system does not propagate the restart as expected.
 
