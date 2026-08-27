@@ -48,7 +48,7 @@ class PairingAgent(ServiceInterface):
 
     @method()
     def DisplayPinCode(self, device: "o", pincode: "s"):
-        LOGGER.info("ble.pairing PIN displayed device=%s pin=%s", device, pincode)
+        LOGGER.info("ble.pairing PIN display requested device=%s", device)
 
     @method()
     def RequestPasskey(self, device: "o") -> "u":
@@ -58,19 +58,14 @@ class PairingAgent(ServiceInterface):
     @method()
     def DisplayPasskey(self, device: "o", passkey: "u", entered: "q"):
         LOGGER.info(
-            "ble.pairing passkey displayed device=%s passkey=%06d entered=%d",
+            "ble.pairing passkey display requested device=%s entered=%d",
             device,
-            passkey,
             entered,
         )
 
     @method()
     def RequestConfirmation(self, device: "o", passkey: "u"):
-        LOGGER.info(
-            "ble.pairing confirmation accepted device=%s passkey=%06d",
-            device,
-            passkey,
-        )
+        LOGGER.info("ble.pairing confirmation accepted device=%s", device)
 
     @method()
     def RequestAuthorization(self, device: "o"):
