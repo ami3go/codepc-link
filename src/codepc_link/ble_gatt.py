@@ -16,6 +16,7 @@ from dbus_next.aio import MessageBus
 from dbus_next.constants import BusType, PropertyAccess
 from dbus_next.service import ServiceInterface, dbus_property, method
 
+from .ble_agent import AGENT_CAPABILITY, AGENT_PATH, PairingAgent
 from .core import (
     DEFAULT_COCKPIT_PORT,
     collect_status,
@@ -35,6 +36,7 @@ from .protocol import (
 
 LOGGER = logging.getLogger(__name__)
 
+BLUEZ_ROOT = "/org/bluez"
 APP_PATH = "/org/codepc/link"
 SERVICE_PATH = f"{APP_PATH}/service0"
 SYSTEM_INFO_PATH = f"{SERVICE_PATH}/char0"
@@ -222,7 +224,7 @@ class Advertisement(ServiceInterface):
 
 
 class CodePCLinkGattServer:
-    """Own BlueZ registration and cleanup for the read-only GATT service."""
+    """Own BlueZ pairing, GATT registration, advertising, and cleanup."""
 
     def __init__(
         self,
@@ -242,8 +244,10 @@ class CodePCLinkGattServer:
         self._bus: MessageBus | None = None
         self._gatt_manager: Any = None
         self._advertising_manager: Any = None
+        self._agent_manager: Any = None
         self._application_registered = False
         self._advertisement_registered = False
+        self._agent_registered = False
 
     def _set_stage(self, stage: str) -> None:
         self.stage = stage
@@ -284,21 +288,25 @@ class CodePCLinkGattServer:
             service = GattService()
             object_manager = ObjectManager(system_info, network_status)
             advertisement = Advertisement(self.local_name)
+            pairing_agent = PairingAgent() if self.secure_reads else None
             LOGGER.debug(
-                "GATT objects built service_uuid=%s system_info_uuid=%s network_status_uuid=%s",
+                "GATT objects built service_uuid=%s system_info_uuid=%s network_status_uuid=%s pairing_agent=%s",
                 MANAGEMENT_SERVICE_UUID,
                 SYSTEM_INFO_CHARACTERISTIC_UUID,
                 NETWORK_STATUS_CHARACTERISTIC_UUID,
+                "enabled" if pairing_agent is not None else "disabled",
             )
 
             self._set_stage("export-dbus-objects")
-            exports = (
+            exports = [
                 (APP_PATH, object_manager),
                 (SERVICE_PATH, service),
                 (SYSTEM_INFO_PATH, system_info),
                 (NETWORK_STATUS_PATH, network_status),
                 (ADVERTISEMENT_PATH, advertisement),
-            )
+            ]
+            if pairing_agent is not None:
+                exports.append((AGENT_PATH, pairing_agent))
             for path, interface in exports:
                 LOGGER.debug("exporting D-Bus object path=%s", path)
                 bus.export(path, interface)
@@ -317,6 +325,36 @@ class CodePCLinkGattServer:
                 "org.bluez.LEAdvertisingManager1"
             )
             LOGGER.debug("GattManager1 and LEAdvertisingManager1 resolved")
+
+            if pairing_agent is not None:
+                self._set_stage("resolve-agent-manager")
+                LOGGER.debug("introspecting BlueZ AgentManager1 path=%s", BLUEZ_ROOT)
+                root_introspection = await bus.introspect("org.bluez", BLUEZ_ROOT)
+                root_proxy = bus.get_proxy_object(
+                    "org.bluez",
+                    BLUEZ_ROOT,
+                    root_introspection,
+                )
+                self._agent_manager = root_proxy.get_interface("org.bluez.AgentManager1")
+                LOGGER.debug("AgentManager1 resolved")
+
+                self._set_stage("register-pairing-agent")
+                LOGGER.debug(
+                    "registering pairing agent path=%s capability=%s",
+                    AGENT_PATH,
+                    AGENT_CAPABILITY,
+                )
+                await self._agent_manager.call_register_agent(
+                    AGENT_PATH,
+                    AGENT_CAPABILITY,
+                )
+                self._agent_registered = True
+                await self._agent_manager.call_request_default_agent(AGENT_PATH)
+                LOGGER.info(
+                    "ble.pairing agent registered path=%s capability=%s default=true",
+                    AGENT_PATH,
+                    AGENT_CAPABILITY,
+                )
 
             self._set_stage("register-gatt-application")
             LOGGER.debug("registering GATT application path=%s", APP_PATH)
@@ -340,9 +378,10 @@ class CodePCLinkGattServer:
 
             self._set_stage("ready")
             LOGGER.info(
-                "ble.server ready adapter=%s service_uuid=%s",
+                "ble.server ready adapter=%s service_uuid=%s pairing_agent=%s",
                 self.adapter,
                 MANAGEMENT_SERVICE_UUID,
+                "default" if self._agent_registered else "disabled",
             )
         except Exception:
             failed_stage = self.stage
@@ -377,6 +416,17 @@ class CodePCLinkGattServer:
                 LOGGER.exception("failed to unregister GATT application")
             finally:
                 self._application_registered = False
+
+        if self._agent_registered and self._agent_manager is not None:
+            self._set_stage("unregister-pairing-agent")
+            LOGGER.debug("unregistering pairing agent path=%s", AGENT_PATH)
+            try:
+                await self._agent_manager.call_unregister_agent(AGENT_PATH)
+                LOGGER.debug("pairing agent unregistered")
+            except Exception:
+                LOGGER.exception("failed to unregister pairing agent")
+            finally:
+                self._agent_registered = False
 
         if self._bus is not None:
             self._set_stage("dbus-disconnect")
