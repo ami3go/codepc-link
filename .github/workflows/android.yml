@@ -28,7 +28,7 @@ jobs:
         run: |
           SDKMANAGER="$(find "${ANDROID_SDK_ROOT}/cmdline-tools" -type f -name sdkmanager | head -n 1)"
           test -n "$SDKMANAGER"
-          yes | "$SDKMANAGER" "platforms;android-37" "build-tools;36.0.0" >/dev/null
+          yes | "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0" >/dev/null
       - name: Build debug APK
         run: gradle -p android :app:assembleDebug
       - name: Upload debug APK
