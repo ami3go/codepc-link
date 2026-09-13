@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "requires": {
+    "cockpit": "300"
+  },
+  "menu": {
+    "index": {
+      "label": "CodePC Link",
+      "order": 90
+    }
+  }
+}
