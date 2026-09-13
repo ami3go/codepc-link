@@ -11,7 +11,6 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import android.text.method.ScrollingMovementMethod
 import android.view.ViewGroup
 import android.widget.Button
@@ -47,8 +46,18 @@ class MainActivity : Activity() {
             return
         }
 
-        ensureConnectPermission()
-        updateSelectedDevice()
+        if (ensureConnectPermission()) {
+            restoreSelectedDevice()
+            updateSelectedDevice()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (hasConnectPermission()) {
+            restoreSelectedDevice()
+            updateSelectedDevice()
+        }
     }
 
     private fun buildUi(): LinearLayout {
@@ -65,7 +74,14 @@ class MainActivity : Activity() {
         }
 
         root.addView(text("CodePC Link", 26f))
-        root.addView(text("Bluetooth Classic / RFCOMM prototype"))
+        root.addView(text("Bluetooth Classic / RFCOMM"))
+        root.addView(
+            text(
+                "First pairing is controlled by the CodePC. Open Cockpit → CodePC Link on the mini-PC, " +
+                    "scan for this phone, and start Pair from CodePC. This app never initiates pairing.",
+                14f,
+            ),
+        )
 
         deviceView = text("Paired PC: not selected")
         connectionView = text("Disconnected")
@@ -73,18 +89,10 @@ class MainActivity : Activity() {
         root.addView(connectionView)
 
         val chooseButton = Button(this).apply {
-            text = "Choose paired PC"
+            text = "Choose paired CodePC"
             setOnClickListener { choosePairedDevice() }
         }
         root.addView(chooseButton)
-
-        val settingsButton = Button(this).apply {
-            text = "Bluetooth settings / pair"
-            setOnClickListener {
-                startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
-            }
-        }
-        root.addView(settingsButton)
 
         connectButton = Button(this).apply {
             text = "Connect"
@@ -145,6 +153,7 @@ class MainActivity : Activity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_CONNECT_PERMISSION) {
             if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+                restoreSelectedDevice()
                 updateSelectedDevice()
             } else {
                 setConnection("Bluetooth permission is required to connect to CodePC")
@@ -156,7 +165,11 @@ class MainActivity : Activity() {
         if (!ensureConnectPermission()) return
         val devices = pairedDevices()
         if (devices.isEmpty()) {
-            Toast.makeText(this, "No paired Bluetooth devices. Pair CodePC first.", Toast.LENGTH_LONG).show()
+            Toast.makeText(
+                this,
+                "No paired devices. Start the first pair from Cockpit → CodePC Link on the mini-PC.",
+                Toast.LENGTH_LONG,
+            ).show()
             return
         }
 
@@ -165,6 +178,7 @@ class MainActivity : Activity() {
             .setTitle("Choose paired CodePC")
             .setItems(labels) { _, which ->
                 selectedDevice = devices[which]
+                rememberSelectedDevice(devices[which])
                 cockpitUrl = null
                 cockpitButton.isEnabled = false
                 updateSelectedDevice()
@@ -181,6 +195,30 @@ class MainActivity : Activity() {
     @Suppress("MissingPermission")
     private fun deviceLabel(device: BluetoothDevice): String =
         "${device.name ?: "Unnamed device"} · ${device.address}"
+
+    @Suppress("MissingPermission")
+    private fun rememberSelectedDevice(device: BluetoothDevice) {
+        getPreferences(MODE_PRIVATE)
+            .edit()
+            .putString(PREF_DEVICE_ADDRESS, device.address)
+            .apply()
+    }
+
+    @Suppress("MissingPermission")
+    private fun restoreSelectedDevice() {
+        if (!hasConnectPermission()) return
+        val remembered = getPreferences(MODE_PRIVATE).getString(PREF_DEVICE_ADDRESS, null)
+        if (remembered == null) {
+            if (selectedDevice == null) {
+                val codePcCandidates = pairedDevices().filter {
+                    (it.name ?: "").contains("CodePC", ignoreCase = true)
+                }
+                if (codePcCandidates.size == 1) selectedDevice = codePcCandidates.single()
+            }
+            return
+        }
+        selectedDevice = pairedDevices().firstOrNull { it.address == remembered }
+    }
 
     private fun updateSelectedDevice() {
         val device = selectedDevice
@@ -284,5 +322,6 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQUEST_CONNECT_PERMISSION = 1001
+        private const val PREF_DEVICE_ADDRESS = "selected_device_address"
     }
 }
