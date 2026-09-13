@@ -11,14 +11,14 @@ import {
 } from "../site/js/rfcomm.mjs";
 import { RFCOMM_SERVICE_UUID } from "../site/js/protocol.mjs";
 
-function statusDocument() {
+function statusDocument(hostname = "codepc-test") {
   return {
     schema: 1,
     generated_at: "2026-09-13T10:00:00+00:00",
     device: {
       id: "test-device",
       name: "CodePC Link - test",
-      hostname: "codepc-test",
+      hostname,
       version: "0.0.0.dev0",
     },
     network: {
@@ -36,6 +36,10 @@ function statusDocument() {
     cockpit: { port: 9090, available: true },
     errors: [],
   };
+}
+
+function responseLine(hostname = "codepc-test") {
+  return `${JSON.stringify({ schema: 1, ok: true, op: "status", status: statusDocument(hostname) })}\n`;
 }
 
 test("RFCOMM status request is newline-delimited schema-v1 JSON", () => {
@@ -83,9 +87,7 @@ test("structured RFCOMM error becomes a client error", () => {
 
 test("client filters requestPort and exchanges a status line", async () => {
   const writes = [];
-  const response = new TextEncoder().encode(
-    `${JSON.stringify({ schema: 1, ok: true, op: "status", status: statusDocument() })}\n`,
-  );
+  const response = new TextEncoder().encode(responseLine());
 
   const port = {
     readable: null,
@@ -134,5 +136,81 @@ test("client filters requestPort and exchanges a status line", async () => {
 
   const remembered = await client.getRememberedPorts();
   assert.deepEqual(remembered, [port]);
+  await client.disconnect();
+});
+
+test("client preserves an already-buffered second RFCOMM response", async () => {
+  const combined = new TextEncoder().encode(
+    `${responseLine("codepc-first")}${responseLine("codepc-second")}`,
+  );
+  const writes = [];
+
+  const port = {
+    readable: null,
+    writable: null,
+    getInfo() {
+      return { bluetoothServiceClassId: RFCOMM_SERVICE_UUID };
+    },
+    async open() {
+      this.readable = new ReadableStream({
+        start(controller) {
+          controller.enqueue(combined);
+        },
+      });
+      this.writable = new WritableStream({
+        write(chunk) {
+          writes.push(new Uint8Array(chunk));
+        },
+      });
+    },
+    async close() {
+      this.readable = null;
+      this.writable = null;
+    },
+  };
+
+  const client = new CodePcRfcommClient();
+  await client.connect(port);
+  const first = await client.readStatus({ timeoutMs: 1000 });
+  const second = await client.readStatus({ timeoutMs: 1000 });
+
+  assert.equal(first.systemInfo.device.hostname, "codepc-first");
+  assert.equal(second.systemInfo.device.hostname, "codepc-second");
+  assert.equal(writes.length, 2);
+  await client.disconnect();
+});
+
+test("client rejects overlapping status transactions", async () => {
+  let responseController;
+  const port = {
+    readable: null,
+    writable: null,
+    getInfo() {
+      return { bluetoothServiceClassId: RFCOMM_SERVICE_UUID };
+    },
+    async open() {
+      this.readable = new ReadableStream({
+        start(controller) {
+          responseController = controller;
+        },
+      });
+      this.writable = new WritableStream({ write() {} });
+    },
+    async close() {
+      this.readable = null;
+      this.writable = null;
+    },
+  };
+
+  const client = new CodePcRfcommClient();
+  await client.connect(port);
+  const first = client.readStatus({ timeoutMs: 1000 });
+  await assert.rejects(
+    client.readStatus({ timeoutMs: 1000 }),
+    /already in progress/,
+  );
+  responseController.enqueue(new TextEncoder().encode(responseLine("codepc-serialized")));
+  const status = await first;
+  assert.equal(status.systemInfo.device.hostname, "codepc-serialized");
   await client.disconnect();
 });
