@@ -25,3 +25,10 @@ def test_serve_rfcomm_parser_defaults_and_verbose() -> None:
     assert args.handler == "serve-rfcomm"
     assert args.channel == DEFAULT_RFCOMM_CHANNEL
     assert args.verbose == 2
+
+
+def test_doctor_transport_parser() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["doctor", "--transport", "rfcomm"])
+    assert args.handler == "doctor"
+    assert args.transport == "rfcomm"
