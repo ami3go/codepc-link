@@ -1,0 +1,112 @@
+:root {
+  color-scheme: light dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: Canvas;
+  color: CanvasText;
+}
+
+* { box-sizing: border-box; }
+
+body { margin: 0; }
+
+button {
+  border: 0;
+  border-radius: 6px;
+  padding: 0.6rem 0.9rem;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  background: #06c;
+  color: white;
+}
+
+button.secondary {
+  background: transparent;
+  color: inherit;
+  border: 1px solid color-mix(in srgb, CanvasText 25%, transparent);
+}
+
+button.danger { color: #c9190b; }
+button:disabled { opacity: 0.5; cursor: default; }
+
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.page-header,
+.section-heading,
+.device-main,
+.status-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.page-header { margin-bottom: 20px; }
+
+.eyebrow {
+  margin: 0 0 4px;
+  color: #06c;
+  font-weight: 700;
+}
+
+h1, h2, h3, p { margin-top: 0; }
+.subtitle, .muted, .device-address, .device-meta { opacity: 0.72; }
+.actions, .device-actions, .badges { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.policy-card,
+.status-card,
+.device-card {
+  border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, Canvas 96%, CanvasText 4%);
+}
+
+.policy-card { padding: 18px; margin-bottom: 16px; }
+.policy-card ol { margin-bottom: 0; padding-left: 1.3rem; }
+.policy-card li + li { margin-top: 0.45rem; }
+
+.status-card {
+  justify-content: flex-start;
+  padding: 14px 16px;
+  margin-bottom: 24px;
+}
+
+.status-card p { margin: 3px 0 0; }
+.status-dot { width: 12px; height: 12px; border-radius: 50%; background: #6a6e73; flex: none; }
+.status-dot.positive { background: #3e8635; }
+.status-dot.negative { background: #c9190b; }
+.status-dot.working { background: #f0ab00; }
+
+.device-list { display: grid; gap: 12px; }
+.device-card { padding: 16px; }
+.device-name { margin-bottom: 3px; }
+.device-address, .device-meta { margin-bottom: 10px; font-family: ui-monospace, SFMono-Regular, monospace; }
+.device-actions { justify-content: flex-end; }
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.8rem;
+  background: color-mix(in srgb, CanvasText 10%, transparent);
+}
+.badge.positive { background: color-mix(in srgb, #3e8635 18%, transparent); }
+.badge.accent { background: color-mix(in srgb, #06c 18%, transparent); }
+
+.empty {
+  padding: 20px;
+  border: 1px dashed color-mix(in srgb, CanvasText 25%, transparent);
+  border-radius: 8px;
+  opacity: 0.75;
+}
+
+@media (max-width: 700px) {
+  .page-header, .device-main { align-items: flex-start; flex-direction: column; }
+  .actions { width: 100%; }
+  .actions button { flex: 1; }
+}
