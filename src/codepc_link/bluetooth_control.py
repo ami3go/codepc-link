@@ -296,7 +296,6 @@ class BluezPairingController:
                 agent_manager = await self._proxy_interface(BLUEZ_ROOT, AGENT_MANAGER_INTERFACE)
                 await agent_manager.call_register_agent(PAIR_AGENT_PATH, PAIR_AGENT_CAPABILITY)
                 agent_registered = True
-                await agent_manager.call_request_default_agent(PAIR_AGENT_PATH)
 
                 device = await self._proxy_interface(path, DEVICE_INTERFACE)
                 try:
