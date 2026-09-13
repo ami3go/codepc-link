@@ -49,5 +49,6 @@ jobs:
           node --check site/js/rfcomm.mjs
           node --check site/js/rfcomm-app.mjs
           node --check site/sw.js
+          node --check cockpit/codepc-link/app.js
       - name: Test web transport contracts
         run: node --test tests_web/*.test.mjs
