@@ -9,6 +9,24 @@ git switch feat/rfcomm-webserial
 git pull
 python -m pip install -e '.[dev]'
 mkdir -p ~/.local/state/codepc-link
+```
+
+First run the RFCOMM-specific doctor checks:
+
+```bash
+codepc-link doctor --transport rfcomm
+```
+
+The important RFCOMM checks are:
+
+```text
+[PASS   ] profile_manager: ProfileManager1 available
+[PASS   ] bredr_support: btmgmt reports BR/EDR support
+```
+
+Then start the prototype:
+
+```bash
 codepc-link serve-rfcomm \
   --state-dir ~/.local/state/codepc-link \
   --verbose
@@ -55,6 +73,7 @@ and should display the returned schema-v1 host status plus candidate Cockpit URL
 
 ## Pass criteria
 
+- `codepc-link doctor --transport rfcomm` passes `ProfileManager1` and BR/EDR capability checks.
 - BlueZ accepts and registers the RFCOMM profile.
 - Chrome can select and open the custom Bluetooth service.
 - One `status` request returns valid JSON.
