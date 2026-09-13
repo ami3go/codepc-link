@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -29,7 +30,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -73,7 +73,6 @@ private fun CodePcApp(vm: MainViewModel = viewModel()) {
 
             when {
                 !state.bluetoothSupported -> Text("Bluetooth is not available on this device.")
-                !state.bluetoothEnabled -> Text("Bluetooth is turned off. Enable it in Android settings, then refresh.")
                 state.permissionRequired -> {
                     Text("CodePC Link needs permission to communicate with paired Bluetooth devices.")
                     Button(onClick = {
@@ -81,6 +80,13 @@ private fun CodePcApp(vm: MainViewModel = viewModel()) {
                             permissionLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
                         }
                     }) { Text("Grant Bluetooth permission") }
+                }
+                !state.bluetoothEnabled -> {
+                    Text("Bluetooth is turned off.")
+                    Button(onClick = {
+                        context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                    }) { Text("Open Bluetooth settings") }
+                    Button(onClick = vm::refreshDevices) { Text("Check again") }
                 }
                 else -> {
                     Text("Paired devices", style = MaterialTheme.typography.titleMedium)
@@ -212,5 +218,6 @@ private fun isUsableHost(host: String): Boolean {
     if (host == "0.0.0.0" || host == "::" || host == "::1") return false
     if (host.startsWith("127.")) return false
     if (host.startsWith("169.254.")) return false
+    if (host.startsWith("fe80:", ignoreCase = true)) return false
     return true
 }

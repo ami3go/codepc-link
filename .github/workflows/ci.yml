@@ -51,3 +51,18 @@ jobs:
           node --check site/sw.js
       - name: Test web transport contracts
         run: node --test tests_web/*.test.mjs
+
+  android:
+    name: Android app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+      - name: Build debug APK
+        run: gradle -p android assembleDebug

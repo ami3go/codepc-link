@@ -3,12 +3,11 @@ package io.github.ami3go.codepclink.bluetooth
 import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
-import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
-import androidx.core.content.ContextCompat
 
 class BluetoothRepository(context: Context) {
     private val appContext = context.applicationContext
@@ -17,10 +16,15 @@ class BluetoothRepository(context: Context) {
 
     fun hasConnectPermission(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-            ContextCompat.checkSelfPermission(
-                appContext,
-                Manifest.permission.BLUETOOTH_CONNECT,
-            ) == PackageManager.PERMISSION_GRANTED
+            appContext.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) ==
+            PackageManager.PERMISSION_GRANTED
+
+    @SuppressLint("MissingPermission")
+    fun isBluetoothEnabled(): Boolean {
+        val bluetoothAdapter = adapter ?: return false
+        if (!hasConnectPermission()) return true
+        return bluetoothAdapter.isEnabled
+    }
 
     @SuppressLint("MissingPermission")
     fun bondedDevices(): List<BondedDevice> {
@@ -28,18 +32,25 @@ class BluetoothRepository(context: Context) {
         if (!hasConnectPermission()) return emptyList()
 
         return bluetoothAdapter.bondedDevices
-            .filter { it.bondState == android.bluetooth.BluetoothDevice.BOND_BONDED }
+            .filter { it.bondState == BluetoothDevice.BOND_BONDED }
             .map {
                 BondedDevice(
                     name = it.name ?: "Unnamed Bluetooth device",
                     address = it.address,
                 )
             }
-            .sortedWith(compareByDescending<BondedDevice> { it.name.contains("codepc", ignoreCase = true) }.thenBy { it.name })
+            .sortedWith(
+                compareByDescending<BondedDevice> {
+                    it.name.contains("codepc", ignoreCase = true)
+                }.thenBy { it.name }
+            )
     }
 
     @SuppressLint("MissingPermission")
-    fun remoteDevice(address: String) = adapter?.getRemoteDevice(address)
+    fun remoteDevice(address: String): BluetoothDevice? {
+        if (!hasConnectPermission()) return null
+        return adapter?.getRemoteDevice(address)
+    }
 }
 
 data class BondedDevice(

@@ -11,6 +11,13 @@ build/
 .venv/
 venv/
 
+# Android / Gradle
+android/.gradle/
+android/local.properties
+android/app/build/
+*.apk
+*.aab
+
 # Editors / OS
 .vscode/
 .idea/

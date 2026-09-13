@@ -1,7 +1,6 @@
 package io.github.ami3go.codepclink
 
 import android.app.Application
-import android.bluetooth.BluetoothAdapter
 import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -17,7 +16,7 @@ import kotlinx.coroutines.launch
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = BluetoothRepository(application)
     private val preferences = application.getSharedPreferences("codepc-link", 0)
-    private var client: RfcommClient? = repository.adapter?.let(::RfcommClient)
+    private val client: RfcommClient? = repository.adapter?.let(::RfcommClient)
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
@@ -33,10 +32,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val remembered = preferences.getString("last-device-address", null)
         _uiState.value = _uiState.value.copy(
             bluetoothSupported = adapter != null,
-            bluetoothEnabled = adapter?.isEnabled == true,
+            bluetoothEnabled = repository.isBluetoothEnabled(),
             permissionRequired = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !permissionGranted,
             devices = devices,
             selectedAddress = _uiState.value.selectedAddress
+                ?.takeIf { selected -> devices.any { it.address == selected } }
                 ?: remembered?.takeIf { saved -> devices.any { it.address == saved } }
                 ?: devices.firstOrNull { it.name.contains("codepc", ignoreCase = true) }?.address,
         )
@@ -49,7 +49,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun connect() {
         val state = _uiState.value
         val address = state.selectedAddress ?: return
-        val device = repository.remoteDevice(address) ?: return
+        val device = repository.remoteDevice(address) ?: run {
+            _uiState.value = state.copy(error = "Bluetooth permission is required")
+            return
+        }
         val activeClient = client ?: return
 
         viewModelScope.launch {
@@ -67,7 +70,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     error = null,
                 )
             }.onFailure { error ->
-                activeClient.disconnect()
+                activeClient.close()
                 _uiState.value = _uiState.value.copy(
                     busy = false,
                     connected = false,
@@ -87,7 +90,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.value = _uiState.value.copy(busy = false, status = status)
                 }
                 .onFailure { error ->
-                    activeClient.disconnect()
+                    activeClient.close()
                     _uiState.value = _uiState.value.copy(
                         busy = false,
                         connected = false,
@@ -111,9 +114,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
-        client?.let { activeClient ->
-            viewModelScope.launch { activeClient.disconnect() }
-        }
+        client?.close()
         super.onCleared()
     }
 }

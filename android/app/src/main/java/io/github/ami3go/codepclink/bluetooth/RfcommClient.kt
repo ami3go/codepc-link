@@ -26,9 +26,11 @@ class RfcommClient(
 
     @SuppressLint("MissingPermission")
     suspend fun connect(device: BluetoothDevice) = withContext(Dispatchers.IO) {
-        disconnect()
+        close()
         adapter.cancelDiscovery()
-        val newSocket = device.createRfcommSocketToServiceRecord(UUID.fromString(CODEPC_RFCOMM_UUID))
+        val newSocket = device.createRfcommSocketToServiceRecord(
+            UUID.fromString(CODEPC_RFCOMM_UUID)
+        )
         try {
             newSocket.connect()
             socket = newSocket
@@ -47,11 +49,14 @@ class RfcommClient(
         activeSocket.outputStream.write(statusRequest())
         activeSocket.outputStream.flush()
 
-        val line = readLine(activeInput)
-        parseStatusResponse(line)
+        parseStatusResponse(readLine(activeInput))
     }
 
     suspend fun disconnect() = withContext(Dispatchers.IO) {
+        close()
+    }
+
+    fun close() {
         runCatching { input?.close() }
         runCatching { socket?.close() }
         input = null
