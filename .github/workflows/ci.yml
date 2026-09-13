@@ -66,3 +66,9 @@ jobs:
           gradle-version: "8.13"
       - name: Build debug APK
         run: gradle -p android assembleDebug
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: codepc-link-android-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
