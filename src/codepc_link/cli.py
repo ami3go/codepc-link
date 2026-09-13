@@ -15,6 +15,8 @@ from .ble_gatt import LOCAL_NAME, CodePCLinkGattServer
 from .ble_probe import DEFAULT_LOCAL_NAME, advertise_for_test
 from .core import DEFAULT_COCKPIT_PORT, collect_status
 from .diagnostics import collect_diagnostics, render_text_report
+from .protocol import RFCOMM_SERVICE_UUID
+from .rfcomm import DEFAULT_RFCOMM_CHANNEL, PROFILE_NAME, CodePCLinkRfcommServer
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -80,6 +82,49 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     serve.set_defaults(handler="serve")
+
+    serve_rfcomm = subparsers.add_parser(
+        "serve-rfcomm",
+        help="Run the experimental CodePC Link Bluetooth Classic RFCOMM service",
+    )
+    serve_rfcomm.add_argument(
+        "--channel",
+        type=int,
+        default=DEFAULT_RFCOMM_CHANNEL,
+        help=f"RFCOMM server channel, default: {DEFAULT_RFCOMM_CHANNEL}",
+    )
+    serve_rfcomm.add_argument(
+        "--name",
+        default=PROFILE_NAME,
+        help=f"RFCOMM profile name, default: {PROFILE_NAME!r}",
+    )
+    serve_rfcomm.add_argument(
+        "--state-dir",
+        type=Path,
+        help="Override persistent state directory",
+    )
+    serve_rfcomm.add_argument(
+        "--cockpit-port",
+        type=int,
+        default=DEFAULT_COCKPIT_PORT,
+        help=f"Cockpit port, default: {DEFAULT_COCKPIT_PORT}",
+    )
+    serve_rfcomm.add_argument(
+        "--insecure-development",
+        action="store_true",
+        help="Disable RFCOMM authentication/authorization; development only",
+    )
+    serve_rfcomm.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help=(
+            "Show staged RFCOMM startup and request diagnostics; repeat as -vv "
+            "to also enable dbus-next debug logging"
+        ),
+    )
+    serve_rfcomm.set_defaults(handler="serve-rfcomm")
 
     doctor = subparsers.add_parser(
         "doctor",
@@ -184,6 +229,10 @@ def _valid_port(value: int) -> bool:
     return 1 <= value <= 65535
 
 
+def _valid_rfcomm_channel(value: int) -> bool:
+    return 1 <= value <= 30
+
+
 def _configure_serve_logging(verbose: int) -> None:
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
@@ -263,6 +312,55 @@ def _run_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_serve_rfcomm(args: argparse.Namespace) -> int:
+    if not _valid_port(args.cockpit_port):
+        print("--cockpit-port must be between 1 and 65535", file=sys.stderr)
+        return 2
+    if not _valid_rfcomm_channel(args.channel):
+        print("--channel must be between 1 and 30", file=sys.stderr)
+        return 2
+
+    _configure_serve_logging(args.verbose)
+    secure = not args.insecure_development
+    if not secure:
+        print(
+            "WARNING: RFCOMM authentication and authorization disabled for development.",
+            file=sys.stderr,
+        )
+
+    server = CodePCLinkRfcommServer(
+        channel=args.channel,
+        profile_name=args.name,
+        require_authentication=secure,
+        require_authorization=secure,
+        state_dir=args.state_dir,
+        cockpit_port=args.cockpit_port,
+    )
+    print(
+        f"Starting CodePC Link RFCOMM profile {args.name!r} on channel {args.channel} "
+        f"with UUID {RFCOMM_SERVICE_UUID} "
+        f"({'authenticated' if secure else 'development/insecure'})."
+    )
+    if args.verbose:
+        print(
+            f"Verbose diagnostics enabled (level {args.verbose}); "
+            "watch rfcomm.server.stage=... to see startup progress.",
+            file=sys.stderr,
+        )
+    try:
+        asyncio.run(server.run_forever())
+    except KeyboardInterrupt:
+        print("\nCodePC Link RFCOMM stopped.")
+        return 0
+    except Exception as exc:
+        print(
+            f"Unable to start CodePC Link RFCOMM at stage {server.stage}: {exc}",
+            file=sys.stderr,
+        )
+        return 2
+    return 0
+
+
 def _run_doctor(args: argparse.Namespace) -> int:
     report = collect_diagnostics()
     serialized = _write_json(report, args.output)
@@ -312,6 +410,8 @@ def main() -> int:
         return _run_status(args)
     if handler == "serve":
         return _run_serve(args)
+    if handler == "serve-rfcomm":
+        return _run_serve_rfcomm(args)
     if handler == "doctor":
         return _run_doctor(args)
     if handler == "advertise-test":
