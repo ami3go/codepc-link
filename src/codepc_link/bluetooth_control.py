@@ -16,7 +16,6 @@ import asyncio
 import json
 import logging
 import re
-import sys
 from typing import Any
 
 from dbus_next import Variant
@@ -233,7 +232,9 @@ class BluezPairingController:
 
     async def scan(self, seconds: float = DEFAULT_SCAN_SECONDS) -> dict[str, Any]:
         if seconds <= 0 or seconds > 30:
-            raise BluetoothControlError("scan duration must be greater than 0 and at most 30 seconds")
+            raise BluetoothControlError(
+                "scan duration must be greater than 0 and at most 30 seconds"
+            )
         await self._prepare_for_server_pairing()
         adapter = await self._proxy_interface(self.adapter_path, ADAPTER_INTERFACE)
         try:
@@ -269,7 +270,8 @@ class BluezPairingController:
             if candidate.upper() == target:
                 return path
         raise BluetoothControlError(
-            f"Bluetooth device {target} is not known to BlueZ; run a scan while the phone is discoverable"
+            f"Bluetooth device {target} is not known to BlueZ; "
+            "run a scan while the phone is discoverable"
         )
 
     async def _set_device_property(self, path: str, name: str, value: Variant) -> None:
