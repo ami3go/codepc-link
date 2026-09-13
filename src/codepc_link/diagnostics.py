@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 COMMAND_TIMEOUT_SECONDS = 5
+SUPPORTED_TRANSPORTS = {"ble", "rfcomm", "all"}
 
 
 def _run(args: list[str]) -> tuple[int, str, str]:
@@ -110,14 +111,21 @@ def _btmgmt_info() -> dict[str, Any]:
     }
 
 
-def _bluez_interface_available(adapter: str, interface: str) -> bool | None:
+def _bluez_interface_available_at(path: str, interface: str) -> bool | None:
     if shutil.which("busctl") is None:
         return None
-    path = f"/org/bluez/{adapter}"
     returncode, _, _ = _run(
         ["busctl", "--system", "introspect", "org.bluez", path, interface]
     )
     return returncode == 0
+
+
+def _bluez_interface_available(adapter: str, interface: str) -> bool | None:
+    return _bluez_interface_available_at(f"/org/bluez/{adapter}", interface)
+
+
+def _bluez_root_interface_available(interface: str) -> bool | None:
+    return _bluez_interface_available_at("/org/bluez", interface)
 
 
 def _parse_rfkill_flag(value: Any) -> bool | None:
@@ -180,8 +188,41 @@ def _check(name: str, status: str, detail: str) -> dict[str, str]:
     return {"name": name, "status": status, "detail": detail}
 
 
-def collect_diagnostics() -> dict[str, Any]:
-    """Collect a deterministic Milestone A feasibility report."""
+def _manager_check(
+    name: str,
+    available: bool | None,
+    interface_name: str,
+) -> dict[str, str]:
+    if available is None:
+        return _check(name, "unknown", "busctl unavailable")
+    return _check(
+        name,
+        "pass" if available else "fail",
+        f"{interface_name} available" if available else f"{interface_name} unavailable",
+    )
+
+
+def _setting_check(
+    name: str,
+    supported_settings: set[str],
+    setting: str,
+    label: str,
+) -> dict[str, str]:
+    if not supported_settings:
+        return _check(name, "unknown", "btmgmt supported settings unavailable")
+    supported = setting in supported_settings
+    return _check(
+        name,
+        "pass" if supported else "fail",
+        f"btmgmt reports {label} support" if supported else f"btmgmt does not report {label} support",
+    )
+
+
+def collect_diagnostics(transport: str = "ble") -> dict[str, Any]:
+    """Collect a deterministic host feasibility report for one Bluetooth transport."""
+    if transport not in SUPPORTED_TRANSPORTS:
+        raise ValueError(f"unsupported transport {transport!r}")
+
     os_release = _read_os_release()
     adapters = _discover_adapters()
     adapter = adapters[0] if adapters else None
@@ -191,11 +232,18 @@ def collect_diagnostics() -> dict[str, Any]:
 
     advertising_manager = (
         _bluez_interface_available(adapter, "org.bluez.LEAdvertisingManager1")
-        if adapter
+        if adapter and transport in {"ble", "all"}
         else False
     )
     gatt_manager = (
-        _bluez_interface_available(adapter, "org.bluez.GattManager1") if adapter else False
+        _bluez_interface_available(adapter, "org.bluez.GattManager1")
+        if adapter and transport in {"ble", "all"}
+        else False
+    )
+    profile_manager = (
+        _bluez_root_interface_available("org.bluez.ProfileManager1")
+        if transport in {"rfcomm", "all"}
+        else False
     )
 
     bluez_version = _first_version(["bluetoothctl", "--version"])
@@ -230,56 +278,39 @@ def collect_diagnostics() -> dict[str, Any]:
         )
     )
 
-    if advertising_manager is None:
-        checks.append(_check("advertising_manager", "unknown", "busctl unavailable"))
-    else:
-        advertising_detail = (
-            "LEAdvertisingManager1 available"
-            if advertising_manager
-            else "LEAdvertisingManager1 unavailable"
-        )
+    if transport in {"ble", "all"}:
         checks.append(
-            _check(
+            _manager_check(
                 "advertising_manager",
-                "pass" if advertising_manager else "fail",
-                advertising_detail,
+                advertising_manager,
+                "LEAdvertisingManager1",
             )
         )
-
-    if gatt_manager is None:
-        checks.append(_check("gatt_manager", "unknown", "busctl unavailable"))
-    else:
+        checks.append(_manager_check("gatt_manager", gatt_manager, "GattManager1"))
+        checks.append(_setting_check("le_support", supported_settings, "le", "LE"))
         checks.append(
-            _check(
-                "gatt_manager",
-                "pass" if gatt_manager else "fail",
-                "GattManager1 available" if gatt_manager else "GattManager1 unavailable",
-            )
-        )
-
-    if supported_settings:
-        le_supported = "le" in supported_settings
-        checks.append(
-            _check(
-                "le_support",
-                "pass" if le_supported else "fail",
-                (
-                    "btmgmt reports LE support"
-                    if le_supported
-                    else "btmgmt does not report LE support"
-                ),
-            )
-        )
-        advertising_supported = "advertising" in supported_settings
-        checks.append(
-            _check(
+            _setting_check(
                 "advertising_support",
-                "pass" if advertising_supported else "fail",
-                (
-                    "btmgmt reports advertising support"
-                    if advertising_supported
-                    else "btmgmt does not report advertising support"
-                ),
+                supported_settings,
+                "advertising",
+                "advertising",
+            )
+        )
+
+    if transport in {"rfcomm", "all"}:
+        checks.append(
+            _manager_check(
+                "profile_manager",
+                profile_manager,
+                "ProfileManager1",
+            )
+        )
+        checks.append(
+            _setting_check(
+                "bredr_support",
+                supported_settings,
+                "br/edr",
+                "BR/EDR",
             )
         )
 
@@ -288,6 +319,7 @@ def collect_diagnostics() -> dict[str, Any]:
     return {
         "schema": 1,
         "generated_at": datetime.now(UTC).isoformat(),
+        "transport": transport,
         "result": "pass" if not blockers else "fail",
         "system": {
             "os": {
@@ -316,6 +348,7 @@ def collect_diagnostics() -> dict[str, Any]:
             "btmgmt": btmgmt,
             "le_advertising_manager": advertising_manager,
             "gatt_manager": gatt_manager,
+            "profile_manager": profile_manager,
         },
         "checks": checks,
     }
@@ -323,6 +356,8 @@ def collect_diagnostics() -> dict[str, Any]:
 
 def render_text_report(report: dict[str, Any]) -> str:
     lines = [f"CodePC Link feasibility: {str(report['result']).upper()}"]
+    if report.get("transport"):
+        lines.append(f"Transport: {str(report['transport']).upper()}")
     system = report["system"]
     os_info = system["os"]
     lines.append(f"OS: {os_info.get('pretty_name') or 'unknown'}")
