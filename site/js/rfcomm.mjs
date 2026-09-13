@@ -86,12 +86,16 @@ export function decodeStatusResponse(line, readAt = new Date()) {
   return adaptStatusDocument(response.status, readAt);
 }
 
-async function readLine(reader, timeoutMs) {
-  const decoder = new TextDecoder("utf-8", { fatal: true });
-  let text = "";
-  let bytes = 0;
-  let timer;
+function appendBytes(left, right) {
+  if (left.byteLength === 0) return new Uint8Array(right);
+  const joined = new Uint8Array(left.byteLength + right.byteLength);
+  joined.set(left, 0);
+  joined.set(right, left.byteLength);
+  return joined;
+}
 
+async function readLine(reader, timeoutMs, state) {
+  let timer;
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(
       () => reject(new Error(`RFCOMM status response timed out after ${timeoutMs} ms`)),
@@ -101,20 +105,24 @@ async function readLine(reader, timeoutMs) {
 
   try {
     while (true) {
+      const newline = state.buffer.indexOf(0x0a);
+      if (newline >= 0) {
+        const line = state.buffer.slice(0, newline);
+        state.buffer = state.buffer.slice(newline + 1);
+        return new TextDecoder("utf-8", { fatal: true }).decode(line).trim();
+      }
+
+      if (state.buffer.byteLength > RFCOMM_MAX_RESPONSE_BYTES) {
+        throw new Error(`RFCOMM response exceeds ${RFCOMM_MAX_RESPONSE_BYTES} bytes`);
+      }
+
       const { value, done } = await Promise.race([reader.read(), timeout]);
       if (done) throw new Error("RFCOMM connection closed before a complete response arrived");
       if (!(value instanceof Uint8Array)) {
         throw new TypeError("Web Serial returned a non-byte RFCOMM chunk");
       }
 
-      bytes += value.byteLength;
-      if (bytes > RFCOMM_MAX_RESPONSE_BYTES) {
-        throw new Error(`RFCOMM response exceeds ${RFCOMM_MAX_RESPONSE_BYTES} bytes`);
-      }
-
-      text += decoder.decode(value, { stream: true });
-      const newline = text.indexOf("\n");
-      if (newline >= 0) return text.slice(0, newline).trim();
+      state.buffer = appendBytes(state.buffer, value);
     }
   } finally {
     clearTimeout(timer);
@@ -126,6 +134,8 @@ export class CodePcRfcommClient extends EventTarget {
     super();
     this.serial = serial;
     this.port = null;
+    this._readState = { buffer: new Uint8Array() };
+    this._statusInFlight = false;
     this._boundDisconnect = (event) => this._onDisconnect(event);
     if (this.serial?.addEventListener) {
       this.serial.addEventListener("disconnect", this._boundDisconnect);
@@ -170,6 +180,9 @@ export class CodePcRfcommClient extends EventTarget {
     if (this.port && this.port !== port && this.connected) {
       await this.disconnect();
     }
+    if (this.port !== port) {
+      this._resetReadState();
+    }
     this.port = port;
 
     if (!this.connected) {
@@ -194,29 +207,38 @@ export class CodePcRfcommClient extends EventTarget {
     if (!this.connected) {
       throw new Error("CodePC Link RFCOMM is not connected.");
     }
-
-    const writer = this.port.writable.getWriter();
-    try {
-      await writer.write(encodeStatusRequest());
-    } finally {
-      writer.releaseLock();
+    if (this._statusInFlight) {
+      throw new Error("An RFCOMM status request is already in progress.");
     }
 
-    const reader = this.port.readable.getReader();
+    this._statusInFlight = true;
     try {
-      const line = await readLine(reader, timeoutMs);
-      const status = decodeStatusResponse(line);
-      this.dispatchEvent(new Event("status"));
-      return status;
-    } catch (error) {
+      const writer = this.port.writable.getWriter();
       try {
-        await reader.cancel(error);
-      } catch {
-        // The stream may already be closed after a radio disconnect.
+        await writer.write(encodeStatusRequest());
+      } finally {
+        writer.releaseLock();
       }
-      throw error;
+
+      const reader = this.port.readable.getReader();
+      try {
+        const line = await readLine(reader, timeoutMs, this._readState);
+        const status = decodeStatusResponse(line);
+        this.dispatchEvent(new Event("status"));
+        return status;
+      } catch (error) {
+        this._resetReadState();
+        try {
+          await reader.cancel(error);
+        } catch {
+          // The stream may already be closed after a radio disconnect.
+        }
+        throw error;
+      } finally {
+        reader.releaseLock();
+      }
     } finally {
-      reader.releaseLock();
+      this._statusInFlight = false;
     }
   }
 
@@ -227,13 +249,19 @@ export class CodePcRfcommClient extends EventTarget {
     try {
       if (port.readable || port.writable) await port.close();
     } finally {
+      this._resetReadState();
       this.dispatchEvent(new Event("disconnect"));
     }
+  }
+
+  _resetReadState() {
+    this._readState.buffer = new Uint8Array();
   }
 
   _onDisconnect(event) {
     const disconnectedPort = event.port || event.target;
     if (disconnectedPort !== this.port) return;
+    this._resetReadState();
     this.dispatchEvent(new Event("disconnect"));
   }
 }
