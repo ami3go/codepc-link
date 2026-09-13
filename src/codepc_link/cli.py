@@ -128,7 +128,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     doctor = subparsers.add_parser(
         "doctor",
-        help="Run Milestone A platform and Bluetooth feasibility checks",
+        help="Run platform and Bluetooth transport feasibility checks",
+    )
+    doctor.add_argument(
+        "--transport",
+        choices=("ble", "rfcomm", "all"),
+        default="ble",
+        help="Bluetooth transport to validate, default: ble",
     )
     doctor.add_argument(
         "--json",
@@ -362,7 +368,7 @@ def _run_serve_rfcomm(args: argparse.Namespace) -> int:
 
 
 def _run_doctor(args: argparse.Namespace) -> int:
-    report = collect_diagnostics()
+    report = collect_diagnostics(transport=args.transport)
     serialized = _write_json(report, args.output)
 
     if args.json_output:
