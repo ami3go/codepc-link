@@ -5,6 +5,7 @@ from codepc_link.diagnostics import (
     _parse_os_release,
     _parse_rfkill_flag,
     _rfkill_state,
+    collect_diagnostics,
     render_text_report,
 )
 
@@ -22,10 +23,11 @@ def test_extract_hci_names() -> None:
 
 
 def test_parse_btmgmt_supported_settings() -> None:
-    text = "supported settings: powered connectable le advertising secure-conn\n"
+    text = "supported settings: powered connectable br/edr le advertising secure-conn\n"
     assert _parse_btmgmt_supported_settings(text) == {
         "powered",
         "connectable",
+        "br/edr",
         "le",
         "advertising",
         "secure-conn",
@@ -71,9 +73,82 @@ def test_rfkill_state_detects_string_yes(monkeypatch) -> None:
     assert _rfkill_state()["blocked"] is True
 
 
+def _stub_common_diagnostics(monkeypatch, supported_settings: list[str]) -> None:
+    monkeypatch.setattr(
+        diagnostics,
+        "_read_os_release",
+        lambda: {"PRETTY_NAME": "Test Linux", "ID": "test", "VERSION_ID": "1"},
+    )
+    monkeypatch.setattr(diagnostics, "_discover_adapters", lambda: ["hci0"])
+    monkeypatch.setattr(
+        diagnostics,
+        "_btmgmt_info",
+        lambda: {
+            "available": True,
+            "ok": True,
+            "supported_settings": supported_settings,
+            "stderr": None,
+        },
+    )
+    monkeypatch.setattr(
+        diagnostics,
+        "_rfkill_state",
+        lambda: {"available": True, "blocked": False, "devices": []},
+    )
+    monkeypatch.setattr(diagnostics, "_first_version", lambda command: "test-version")
+    monkeypatch.setattr(diagnostics, "_service_state", lambda unit: "active")
+
+
+def test_collect_diagnostics_rfcomm_checks_profile_manager_and_bredr(monkeypatch) -> None:
+    _stub_common_diagnostics(monkeypatch, ["powered", "br/edr", "secure-conn"])
+    monkeypatch.setattr(diagnostics, "_bluez_root_interface_available", lambda interface: True)
+
+    report = collect_diagnostics("rfcomm")
+    checks = {check["name"]: check for check in report["checks"]}
+
+    assert report["transport"] == "rfcomm"
+    assert report["result"] == "pass"
+    assert checks["profile_manager"]["status"] == "pass"
+    assert checks["bredr_support"]["status"] == "pass"
+    assert "advertising_manager" not in checks
+    assert report["bluetooth"]["profile_manager"] is True
+
+
+def test_collect_diagnostics_rfcomm_fails_without_bredr(monkeypatch) -> None:
+    _stub_common_diagnostics(monkeypatch, ["powered", "le", "advertising"])
+    monkeypatch.setattr(diagnostics, "_bluez_root_interface_available", lambda interface: True)
+
+    report = collect_diagnostics("rfcomm")
+    checks = {check["name"]: check for check in report["checks"]}
+
+    assert report["result"] == "fail"
+    assert checks["bredr_support"]["status"] == "fail"
+
+
+def test_collect_diagnostics_all_includes_both_transport_families(monkeypatch) -> None:
+    _stub_common_diagnostics(
+        monkeypatch,
+        ["powered", "br/edr", "le", "advertising", "secure-conn"],
+    )
+    monkeypatch.setattr(diagnostics, "_bluez_root_interface_available", lambda interface: True)
+    monkeypatch.setattr(
+        diagnostics,
+        "_bluez_interface_available",
+        lambda adapter, interface: True,
+    )
+
+    report = collect_diagnostics("all")
+    names = {check["name"] for check in report["checks"]}
+
+    assert report["result"] == "pass"
+    assert {"advertising_manager", "gatt_manager", "profile_manager"} <= names
+    assert {"le_support", "advertising_support", "bredr_support"} <= names
+
+
 def test_render_text_report() -> None:
     report = {
         "result": "pass",
+        "transport": "rfcomm",
         "system": {
             "os": {"pretty_name": "Test Linux"},
             "kernel": "6.1.0",
@@ -85,5 +160,6 @@ def test_render_text_report() -> None:
     }
     rendered = render_text_report(report)
     assert "CodePC Link feasibility: PASS" in rendered
+    assert "Transport: RFCOMM" in rendered
     assert "[PASS" in rendered
     assert "adapter: hci0" in rendered

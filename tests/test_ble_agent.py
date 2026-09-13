@@ -2,7 +2,7 @@ import pytest
 from dbus_next.errors import DBusError
 
 from codepc_link.ble_agent import AGENT_CAPABILITY, BLUEZ_REJECTED, PairingAgent
-from codepc_link.protocol import MANAGEMENT_SERVICE_UUID
+from codepc_link.protocol import MANAGEMENT_SERVICE_UUID, RFCOMM_SERVICE_UUID
 
 
 def test_pairing_agent_uses_headless_capability() -> None:
@@ -30,11 +30,12 @@ def test_pairing_agent_rejects_input_requests() -> None:
     assert passkey_error.value.type == BLUEZ_REJECTED
 
 
-def test_pairing_agent_only_authorizes_management_service() -> None:
+def test_pairing_agent_only_authorizes_codepc_services() -> None:
     agent = PairingAgent()
     device = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF"
 
     assert agent.AuthorizeService(device, MANAGEMENT_SERVICE_UUID) is None
+    assert agent.AuthorizeService(device, RFCOMM_SERVICE_UUID) is None
 
     with pytest.raises(DBusError) as rejected:
         agent.AuthorizeService(device, "0000110b-0000-1000-8000-00805f9b34fb")

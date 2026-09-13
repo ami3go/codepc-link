@@ -1,4 +1,4 @@
-"""Stable CodePC Link BLE protocol constants and payload helpers."""
+"""Stable CodePC Link protocol constants and BLE payload helpers."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ MANAGEMENT_SERVICE_UUID = "78561c99-7412-45b5-84b6-4ef7062fe7d0"
 SYSTEM_INFO_CHARACTERISTIC_UUID = "83cf19fa-bf46-4fc9-8366-321b545c4bf4"
 NETWORK_STATUS_CHARACTERISTIC_UUID = "6ef6c725-99f8-4533-bd85-874453f28af3"
 EVENT_CHARACTERISTIC_UUID = "5b45ee1f-060f-48db-9fa4-b0096115967d"
+RFCOMM_SERVICE_UUID = "0330ce6c-09db-5189-b7ad-e16bcafac7ee"
 
 READ_FLAGS_SECURE = ["encrypt-read"]
 READ_FLAGS_DEVELOPMENT = ["read"]

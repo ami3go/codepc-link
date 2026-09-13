@@ -46,6 +46,8 @@ jobs:
           node --check site/js/protocol.mjs
           node --check site/js/bluetooth.mjs
           node --check site/js/app.mjs
+          node --check site/js/rfcomm.mjs
+          node --check site/js/rfcomm-app.mjs
           node --check site/sw.js
-      - name: Test Web Bluetooth contract
+      - name: Test web transport contracts
         run: node --test tests_web/*.test.mjs

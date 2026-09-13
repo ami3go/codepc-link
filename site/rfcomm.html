@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#071a30">
+  <meta name="description" content="CodePC Link RFCOMM + Web Serial feasibility prototype.">
+  <meta name="color-scheme" content="dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/codepc-link-icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <title>CodePC Link RFCOMM prototype</title>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <img src="assets/codepc-link-icon.svg" alt="">
+        <div class="brand-copy">
+          <h1>CodePC Link</h1>
+          <p>RFCOMM + Web Serial feasibility prototype</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <a class="button ghost small" href="index.html">BLE client</a>
+        <a class="button ghost small" href="https://github.com/ami3go/codepc-link" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </div>
+    </header>
+
+    <section class="hero">
+      <article class="panel intro">
+        <span class="eyebrow">Bluetooth Classic RFCOMM · protocol v1</span>
+        <h2>Request the mini-PC status as a serial JSON message.</h2>
+        <p>This experimental client uses Android Chrome Web Serial over a paired Bluetooth Classic RFCOMM service. Cockpit still opens over the normal IP network; Bluetooth only carries the discovery/status exchange.</p>
+        <div class="status-row" aria-label="RFCOMM prototype status">
+          <span id="rfcomm-browser-status" class="status-pill">Checking Web Serial…</span>
+          <span id="rfcomm-connection-status" class="status-pill">Not connected</span>
+        </div>
+      </article>
+
+      <aside class="panel connect-panel" aria-labelledby="rfcomm-connect-heading">
+        <h2 id="rfcomm-connect-heading">Paired CodePC Link service</h2>
+        <p>Pair the phone and mini-PC first. The chooser is filtered to the CodePC Link RFCOMM service UUID.</p>
+        <div class="button-row">
+          <button id="rfcomm-connect-button" class="button primary" type="button">Choose RFCOMM service</button>
+          <button id="rfcomm-reconnect-button" class="button secondary" type="button" disabled>Reconnect</button>
+          <button id="rfcomm-refresh-button" class="button secondary" type="button" disabled>Refresh status</button>
+          <button id="rfcomm-disconnect-button" class="button ghost" type="button" disabled>Disconnect</button>
+        </div>
+        <div id="rfcomm-remembered" class="remembered" aria-live="polite"></div>
+        <p class="support-note">Target: Android Chrome 138+. Web Serial is a powerful feature and therefore requires HTTPS (or localhost during desktop development).</p>
+      </aside>
+    </section>
+
+    <section id="rfcomm-result" class="device-section" hidden aria-live="polite">
+      <article class="panel device-summary">
+        <div>
+          <h2>RFCOMM status received</h2>
+          <p id="rfcomm-summary"></p>
+        </div>
+      </article>
+
+      <section class="panel section-panel" aria-labelledby="rfcomm-cockpit-heading">
+        <div class="section-title">
+          <div>
+            <h2 id="rfcomm-cockpit-heading">Cockpit targets</h2>
+            <p>Targets are generated with the same safe-IP logic as the BLE client.</p>
+          </div>
+        </div>
+        <div id="rfcomm-targets" class="targets"></div>
+      </section>
+
+      <section class="panel section-panel" aria-labelledby="rfcomm-json-heading">
+        <div class="section-title">
+          <div>
+            <h2 id="rfcomm-json-heading">Raw status document</h2>
+            <p>This is the same schema-v1 document returned by <code>codepc-link status --json</code>.</p>
+          </div>
+        </div>
+        <pre id="rfcomm-raw" class="security-note"></pre>
+      </section>
+    </section>
+
+    <footer class="footer">
+      <span>Experimental transport — not yet the production default.</span>
+      <span>RFCOMM carries status only; Cockpit traffic never passes through Bluetooth.</span>
+      <a href="https://github.com/ami3go/codepc-link/blob/main/docs/RFCOMM_WEB_SERIAL.md" target="_blank" rel="noopener noreferrer">RFCOMM test guide</a>
+    </footer>
+  </main>
+
+  <script type="module" src="js/rfcomm-app.mjs"></script>
+</body>
+</html>

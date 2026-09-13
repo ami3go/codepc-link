@@ -1,5 +1,6 @@
 from codepc_link import __version__
 from codepc_link.cli import build_parser
+from codepc_link.rfcomm import DEFAULT_RFCOMM_CHANNEL
 
 
 def test_version_is_defined() -> None:
@@ -16,3 +17,18 @@ def test_serve_verbose_flag_counts_levels() -> None:
     args = parser.parse_args(["serve", "-vv"])
     assert args.handler == "serve"
     assert args.verbose == 2
+
+
+def test_serve_rfcomm_parser_defaults_and_verbose() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["serve-rfcomm", "-vv"])
+    assert args.handler == "serve-rfcomm"
+    assert args.channel == DEFAULT_RFCOMM_CHANNEL
+    assert args.verbose == 2
+
+
+def test_doctor_transport_parser() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["doctor", "--transport", "rfcomm"])
+    assert args.handler == "doctor"
+    assert args.transport == "rfcomm"

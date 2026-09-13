@@ -2,6 +2,7 @@ export const SCHEMA_VERSION = 1;
 export const MANAGEMENT_SERVICE_UUID = "78561c99-7412-45b5-84b6-4ef7062fe7d0";
 export const SYSTEM_INFO_CHARACTERISTIC_UUID = "83cf19fa-bf46-4fc9-8366-321b545c4bf4";
 export const NETWORK_STATUS_CHARACTERISTIC_UUID = "6ef6c725-99f8-4533-bd85-874453f28af3";
+export const RFCOMM_SERVICE_UUID = "0330ce6c-09db-5189-b7ad-e16bcafac7ee";
 
 function assertObject(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -84,7 +85,7 @@ function isIpv6(address) {
   if (!address.includes(":") || !/^[0-9a-f:.]+$/i.test(address)) return false;
   try {
     // URL parsing gives us a compact standards-backed syntax check without
-    // accepting hostnames or URL metacharacters from BLE-provided data.
+    // accepting hostnames or URL metacharacters from Bluetooth-provided data.
     new URL(`https://[${address}]/`);
     return true;
   } catch {
@@ -127,7 +128,7 @@ export function buildCockpitTargets(systemInfo, networkStatus) {
       try {
         url = buildCockpitUrl(address, port);
       } catch {
-        // A malformed backend port should not stop the rest of the BLE status
+        // A malformed backend port should not stop the rest of the Bluetooth status
         // from rendering. The candidate remains visible without a link.
       }
 
