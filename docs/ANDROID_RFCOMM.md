@@ -1,12 +1,16 @@
 # Android RFCOMM app prototype
 
-This branch keeps the Linux BlueZ RFCOMM server from the Web Serial spike and adds a native Android client. The Android app is now the primary experiment; Web Serial remains in the branch only as a comparison path until the native test succeeds.
+This branch keeps the Linux BlueZ RFCOMM server and adds a native Android client. The Android app is the primary client experiment. Initial Bluetooth pairing is deliberately initiated from the CodePC Cockpit GUI, not from the Android app.
 
 ## Architecture
 
 ```text
 CodePC mini                                      Android app
 -----------------------------                   -----------------------------
+Cockpit CodePC Link page
+        |
+        +---- scan / Pair from CodePC --------> Android pairing confirmation
+        |
 codepc-link Management Core                     CodePC Link
         |                                               |
         v                                               v
@@ -23,6 +27,21 @@ The PC remains the RFCOMM server and Android is the client. This avoids `/dev/rf
 
 The first app version runs only while visible. It does **not** use a foreground service yet. Background reconnect/monitoring can be added later if there is a real requirement for it.
 
+## Pairing model
+
+The first Bluetooth bond must originate on CodePC:
+
+- Android opens its normal **Pair new device** screen only to become discoverable.
+- Cockpit scans for nearby Bluetooth Classic devices.
+- The administrator selects the phone and starts **Pair from CodePC**.
+- A temporary BlueZ pairing agent is registered by the same process that calls `Device1.Pair()`, so BlueZ uses that targeted agent for the locally initiated pair.
+- The agent accepts only the selected BlueZ device path and the CodePC Link RFCOMM service.
+- After a successful bond the phone is marked `Trusted` in BlueZ.
+- The Android application itself only enumerates already-bonded devices and has no Pair action.
+- The always-on CodePC Link agent rejects unsolicited incoming first-pair requests.
+
+See `ANDROID_RFCOMM_PAIRING.md` for the detailed Cockpit installation and test procedure.
+
 ## Android project
 
 The native project is under `android/` and intentionally uses platform Android APIs only:
@@ -30,13 +49,14 @@ The native project is under `android/` and intentionally uses platform Android A
 - Kotlin with AGP built-in Kotlin support.
 - `BluetoothDevice.createRfcommSocketToServiceRecord()` for a secure authenticated RFCOMM connection.
 - `BLUETOOTH_CONNECT` on Android 12+.
-- Paired devices only for the first prototype; pairing is done in Android Bluetooth settings.
-- No Bluetooth scan permission is required because the app does not perform discovery.
+- Bonded devices only; discovery and pairing are handled by CodePC/Cockpit.
+- No Bluetooth scan permission is required by the app.
 - One newline-delimited JSON request/response at a time.
+- The selected CodePC Bluetooth address is remembered for later launches.
 
 ## Build
 
-The repository has an Android workflow that installs the required Gradle version and builds a debug APK. Locally, open `android/` in Android Studio or use Gradle 9.6 with JDK 17:
+The repository has an Android workflow that builds a debug APK against Android API 36. Locally, open `android/` in Android Studio or use the configured Gradle/JDK toolchain:
 
 ```bash
 gradle -p android :app:assembleDebug
@@ -58,28 +78,38 @@ git pull
 python -m pip install -e '.[dev]'
 mkdir -p ~/.local/state/codepc-link
 codepc-link doctor --transport rfcomm
+sudo sh packaging/install-cockpit-plugin.sh
 codepc-link serve-rfcomm --state-dir ~/.local/state/codepc-link --verbose
 ```
 
 A healthy server reaches `rfcomm.server.stage=ready`.
 
-On Android:
+Then pair from Cockpit:
 
-1. Pair the phone with CodePC in normal Bluetooth settings.
-2. Install the debug APK.
-3. Grant the Nearby devices / Bluetooth connection permission when requested.
-4. Tap **Choose paired PC** and select CodePC.
-5. Tap **Connect**.
-6. Tap **Request status**.
-7. Verify the hostname and network addresses match `codepc-link status --json` on the PC.
-8. Tap **Open Cockpit** and verify the selected IP reaches Cockpit over the phone's normal IP network.
+1. On Android, open **Pair new device** so the phone is discoverable; do not initiate pairing with CodePC from Android.
+2. Open Cockpit → **CodePC Link**.
+3. Click **Scan for phones**.
+4. Select the phone and click **Pair from CodePC**.
+5. Confirm the Android system pairing prompt if shown.
+6. Verify the Cockpit page shows the phone as **Paired** and **Trusted**.
+
+Then test the app:
+
+1. Install the debug APK.
+2. Grant the Nearby devices / Bluetooth connection permission when requested.
+3. Tap **Choose paired CodePC** and select CodePC.
+4. Tap **Connect**.
+5. Tap **Request status**.
+6. Verify the hostname and network addresses match `codepc-link status --json` on the PC.
+7. Tap **Open Cockpit** and verify the selected IP reaches Cockpit over the phone's normal IP network.
 
 ## R1 native-app pass criteria
 
-- Android can establish the secure RFCOMM socket using the custom CodePC service UUID.
+- The first pair can be initiated from Cockpit and cannot be initiated by the CodePC Link Android app.
+- Android can establish the secure RFCOMM socket using the custom CodePC service UUID after pairing.
 - Status request/response succeeds repeatedly without `/dev/rfcomm0` on Linux.
 - Disconnect/reconnect succeeds at least five times.
-- Unpaired devices cannot use the secure RFCOMM profile.
+- Removing the pairing in Cockpit prevents the Android app from reconnecting until server-side pairing is repeated.
 - CodePC reboot and Bluetooth service restart behavior are understood.
 - The app can select the correct CodePC when more than one PC is paired.
 
