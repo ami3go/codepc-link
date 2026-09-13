@@ -1,10 +1,12 @@
 import asyncio
 import json
+import socket
 
 from codepc_link import rfcomm
 from codepc_link.protocol import RFCOMM_SERVICE_UUID, SCHEMA_VERSION
 from codepc_link.rfcomm import (
     DEFAULT_RFCOMM_CHANNEL,
+    MAX_REQUEST_BYTES,
     CodePCLinkRfcommServer,
     decode_request,
     encode_message,
@@ -69,3 +71,72 @@ def test_profile_options_require_secure_connection_by_default() -> None:
     assert options["Channel"].value == DEFAULT_RFCOMM_CHANNEL
     assert options["RequireAuthentication"].value is True
     assert options["RequireAuthorization"].value is True
+
+
+async def _read_json_line(loop, connection: socket.socket) -> dict:
+    buffer = bytearray()
+    while b"\n" not in buffer:
+        chunk = await asyncio.wait_for(loop.sock_recv(connection, 65536), timeout=1)
+        assert chunk
+        buffer.extend(chunk)
+    line, _ = bytes(buffer).split(b"\n", 1)
+    return json.loads(line)
+
+
+def test_connection_loop_handles_fragmented_request(monkeypatch) -> None:
+    expected = {
+        "schema": 1,
+        "device": {"hostname": "codepc-fragmented"},
+        "network": {"interfaces": []},
+        "cockpit": {"port": 9090, "available": True},
+        "errors": [],
+    }
+
+    async def fake_collect_status(*, state_dir=None, cockpit_port=9090):
+        return expected
+
+    monkeypatch.setattr(rfcomm, "collect_status", fake_collect_status)
+
+    async def scenario() -> None:
+        server = CodePCLinkRfcommServer()
+        server_side, client_side = socket.socketpair()
+        server_side.setblocking(False)
+        client_side.setblocking(False)
+        loop = asyncio.get_running_loop()
+        task = asyncio.create_task(server._serve_connection("test-device", server_side))
+
+        try:
+            await loop.sock_sendall(client_side, b'{"schema":1,')
+            await loop.sock_sendall(client_side, b'"op":"status"}\n')
+            response = await _read_json_line(loop, client_side)
+            assert response["ok"] is True
+            assert response["status"] == expected
+        finally:
+            client_side.close()
+            await asyncio.wait_for(task, timeout=1)
+
+    asyncio.run(scenario())
+
+
+def test_connection_loop_rejects_unterminated_oversize_request() -> None:
+    async def scenario() -> None:
+        server = CodePCLinkRfcommServer()
+        server_side, client_side = socket.socketpair()
+        server_side.setblocking(False)
+        client_side.setblocking(False)
+        loop = asyncio.get_running_loop()
+        task = asyncio.create_task(server._serve_connection("test-device", server_side))
+
+        try:
+            await loop.sock_sendall(client_side, b"x" * (MAX_REQUEST_BYTES + 1))
+            response = await _read_json_line(loop, client_side)
+            assert response["ok"] is False
+            assert response["error"]["code"] == "REQUEST_TOO_LARGE"
+            await asyncio.wait_for(task, timeout=1)
+        finally:
+            client_side.close()
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(scenario())
