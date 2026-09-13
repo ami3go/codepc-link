@@ -69,32 +69,41 @@ agent and authorizes only CodePC Link service UUIDs. Pairing can also be done
 before starting the server with `bluetoothctl`. For a pre-paired phone, mark the
 device trusted when testing authorization behavior.
 
-## Android Chrome / Web Serial test
+## Android Chrome / Web Serial client
 
-The browser client is the next slice of this prototype. It should request a
-Bluetooth serial port filtered by the RFCOMM service UUID:
+The branch now contains a focused browser prototype at `site/rfcomm.html`. It
+uses `navigator.serial.requestPort()` with both
+`allowedBluetoothServiceClassIds` and a `bluetoothServiceClassId` filter for the
+CodePC Link UUID, opens the RFCOMM stream, sends one schema-v1 `status` request,
+and reads one newline-delimited JSON response.
 
-```js
-const serviceUuid = "0330ce6c-09db-5189-b7ad-e16bcafac7ee";
+The page then adapts the full status document to the same renderer contract used
+by the BLE client and builds Cockpit targets with the shared safe-IP logic.
+Previously permitted RFCOMM ports are listed using `navigator.serial.getPorts()`.
 
-const port = await navigator.serial.requestPort({
-  allowedBluetoothServiceClassIds: [serviceUuid],
-  filters: [{ bluetoothServiceClassId: serviceUuid }],
-});
+Chrome on Android supports Web Serial over Bluetooth RFCOMM from Chrome 138.
+The page must run in a secure context. For the real phone test, use the hosted
+HTTPS site after this branch is deployed/merged; plain HTTP on a LAN address is
+not sufficient for Web Serial.
 
-await port.open({ baudRate: 115200 });
+Browser-side constants and transport code live in:
+
+```text
+site/js/protocol.mjs       shared schema/UUID constants
+site/js/rfcomm.mjs         Web Serial RFCOMM transport
+site/js/rfcomm-app.mjs     prototype UI controller
+site/rfcomm.html           prototype page
 ```
 
-The baud rate is part of the Web Serial API contract; RFCOMM itself is carrying
-the byte stream.
-
-The client then writes one line:
+The Web Serial client sends:
 
 ```text
 {"schema":1,"op":"status"}\n
 ```
 
-and reads one JSON line in response.
+and expects one response line. A response timeout, malformed JSON, wrong schema,
+structured server error, or unexpected operation is surfaced to the user rather
+than treated as valid status.
 
 ## R1 feasibility gate
 

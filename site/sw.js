@@ -1,13 +1,16 @@
-const CACHE_NAME = "codepc-link-v0.1-shell-2";
+const CACHE_NAME = "codepc-link-v0.1-shell-3";
 const APP_SHELL = [
   "./",
   "./index.html",
+  "./rfcomm.html",
   "./styles.css",
   "./manifest.webmanifest",
   "./assets/codepc-link-icon.svg",
   "./js/protocol.mjs",
   "./js/bluetooth.mjs",
   "./js/app.mjs",
+  "./js/rfcomm.mjs",
+  "./js/rfcomm-app.mjs",
 ];
 
 self.addEventListener("install", (event) => {
