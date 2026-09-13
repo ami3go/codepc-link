@@ -211,11 +211,12 @@ def _setting_check(
     if not supported_settings:
         return _check(name, "unknown", "btmgmt supported settings unavailable")
     supported = setting in supported_settings
-    return _check(
-        name,
-        "pass" if supported else "fail",
-        f"btmgmt reports {label} support" if supported else f"btmgmt does not report {label} support",
+    detail = (
+        f"btmgmt reports {label} support"
+        if supported
+        else f"btmgmt does not report {label} support"
     )
+    return _check(name, "pass" if supported else "fail", detail)
 
 
 def collect_diagnostics(transport: str = "ble") -> dict[str, Any]:
