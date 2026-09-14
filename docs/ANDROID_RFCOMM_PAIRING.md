@@ -58,7 +58,13 @@ The page uses Cockpit privilege escalation for Bluetooth management and calls on
 6. Confirm the Android pairing prompt if Android presents one.
 7. The device should return as **Paired** and **Trusted**.
 
-The pairing controller also disables BlueZ's `Pairable` property before scanning/pairing. That blocks normal remote-initiated first pairing while CodePC Link is managing the adapter. Local `Device1.Pair()` is still used for the selected phone.
+The pairing controller disables BlueZ's `Pairable` property while scanning. For
+the selected phone it first registers a device-targeted agent, then enables
+`Pairable`/controller bondability before calling local `Device1.Pair()`. This is
+required for BlueZ to persist the link key. Bondability remains enabled after a
+verified bond because some controllers otherwise stop accepting the bonded
+phone's incoming SDP/RFCOMM connection. The always-on CodePC agent continues to
+reject unsolicited first-pair requests from other devices.
 
 ## Run the RFCOMM server
 

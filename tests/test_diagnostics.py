@@ -1,5 +1,6 @@
 from codepc_link import diagnostics
 from codepc_link.diagnostics import (
+    _adapter_service_uuids,
     _extract_hci_names,
     _parse_btmgmt_supported_settings,
     _parse_os_release,
@@ -32,6 +33,20 @@ def test_parse_btmgmt_supported_settings() -> None:
         "advertising",
         "secure-conn",
     }
+
+
+def test_adapter_service_uuids_parses_busctl_property(monkeypatch) -> None:
+    output = (
+        'as 2 "0000110B-0000-1000-8000-00805F9B34FB" '
+        '"0330ce6c-09db-5189-b7ad-e16bcafac7ee"'
+    )
+    monkeypatch.setattr(diagnostics.shutil, "which", lambda command: "/usr/bin/busctl")
+    monkeypatch.setattr(diagnostics, "_run", lambda args: (0, output, ""))
+
+    assert _adapter_service_uuids("hci0") == [
+        "0000110b-0000-1000-8000-00805f9b34fb",
+        "0330ce6c-09db-5189-b7ad-e16bcafac7ee",
+    ]
 
 
 def test_parse_rfkill_flag_handles_util_linux_string_values() -> None:
@@ -97,6 +112,7 @@ def _stub_common_diagnostics(monkeypatch, supported_settings: list[str]) -> None
     )
     monkeypatch.setattr(diagnostics, "_first_version", lambda command: "test-version")
     monkeypatch.setattr(diagnostics, "_service_state", lambda unit: "active")
+    monkeypatch.setattr(diagnostics, "_adapter_service_uuids", lambda adapter: [])
 
 
 def test_collect_diagnostics_rfcomm_checks_profile_manager_and_bredr(monkeypatch) -> None:
@@ -123,6 +139,27 @@ def test_collect_diagnostics_rfcomm_fails_without_bredr(monkeypatch) -> None:
 
     assert report["result"] == "fail"
     assert checks["bredr_support"]["status"] == "fail"
+
+
+def test_collect_diagnostics_rfcomm_warns_about_desktop_profiles(monkeypatch) -> None:
+    _stub_common_diagnostics(monkeypatch, ["powered", "br/edr", "secure-conn"])
+    monkeypatch.setattr(diagnostics, "_bluez_root_interface_available", lambda interface: True)
+    monkeypatch.setattr(
+        diagnostics,
+        "_adapter_service_uuids",
+        lambda adapter: [
+            "0000110b-0000-1000-8000-00805f9b34fb",
+            "0000111f-0000-1000-8000-00805f9b34fb",
+        ],
+    )
+
+    report = collect_diagnostics("rfcomm")
+    checks = {check["name"]: check for check in report["checks"]}
+
+    assert report["result"] == "pass"
+    assert checks["profile_isolation"]["status"] == "warn"
+    assert "audio sink" in checks["profile_isolation"]["detail"]
+    assert "hands-free audio gateway" in checks["profile_isolation"]["detail"]
 
 
 def test_collect_diagnostics_all_includes_both_transport_families(monkeypatch) -> None:

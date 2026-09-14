@@ -44,7 +44,8 @@ See `ANDROID_RFCOMM_PAIRING.md` for the detailed Cockpit installation and test p
 
 ## Android project
 
-The native project is under `android/` and intentionally uses platform Android APIs only:
+The native project is under `android/`, supports Android 6.0 (API 23) and later,
+and intentionally uses platform Android APIs only:
 
 - Kotlin with AGP built-in Kotlin support.
 - `BluetoothDevice.createRfcommSocketToServiceRecord()` for a secure authenticated RFCOMM connection.
@@ -56,7 +57,7 @@ The native project is under `android/` and intentionally uses platform Android A
 
 ## Build
 
-The repository has an Android workflow that builds a debug APK against Android API 36. Locally, open `android/` in Android Studio or use the configured Gradle/JDK toolchain:
+The repository has an Android workflow that builds a debug APK against Android API 36. Locally, open `android/` in Android Studio or use Gradle 9.7.1 with JDK 17:
 
 ```bash
 gradle -p android :app:assembleDebug
@@ -83,6 +84,13 @@ codepc-link serve-rfcomm --state-dir ~/.local/state/codepc-link --verbose
 ```
 
 A healthy server reaches `rfcomm.server.stage=ready`.
+
+For a pairing test, `doctor --transport rfcomm` also reports
+`profile_isolation`. A warning means the same physical adapter is advertising
+desktop audio, hands-free, phonebook, messaging, or file-transfer profiles in
+addition to CodePC Link. Android may consequently present unrelated audio,
+call, or contact-sharing options. Use a dedicated adapter, or temporarily
+disable those desktop integrations, when validating the CodePC RFCOMM path.
 
 Then pair from Cockpit:
 

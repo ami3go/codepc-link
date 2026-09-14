@@ -42,6 +42,7 @@ BLUEZ_REJECTED = "org.bluez.Error.Rejected"
 DEFAULT_ADAPTER = "hci0"
 DEFAULT_SCAN_SECONDS = 8.0
 PAIR_TIMEOUT_SECONDS = 75.0
+PAIR_VERIFY_SECONDS = 15.0
 
 _ADDRESS_RE = re.compile(r"^(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$")
 
@@ -73,6 +74,7 @@ def _device_record(path: str, properties: dict[str, Variant]) -> dict[str, Any]:
             _value(properties.get("Alias", properties.get("Name", Variant("s", "")))) or ""
         ),
         "paired": bool(_value(properties.get("Paired", Variant("b", False)))),
+        "bonded": bool(_value(properties.get("Bonded", Variant("b", False)))),
         "trusted": bool(_value(properties.get("Trusted", Variant("b", False)))),
         "connected": bool(_value(properties.get("Connected", Variant("b", False)))),
         "blocked": bool(_value(properties.get("Blocked", Variant("b", False)))),
@@ -199,12 +201,13 @@ class BluezPairingController:
         properties = await self._proxy_interface(self.adapter_path, PROPERTIES_INTERFACE)
         await properties.call_set(ADAPTER_INTERFACE, name, value)
 
-    async def _prepare_for_server_pairing(self) -> None:
+    async def _prepare_adapter(self) -> None:
         adapter = await self._adapter_properties()
         if not adapter["powered"]:
             await self._set_adapter_property("Powered", Variant("b", True))
-        # Pairable controls remote-initiated pairing. Keep it disabled because
-        # CodePC Link requires the first pair to be initiated from Cockpit.
+
+    async def _disable_incoming_pairing(self) -> None:
+        adapter = await self._adapter_properties()
         if adapter["pairable"]:
             await self._set_adapter_property("Pairable", Variant("b", False))
 
@@ -235,7 +238,8 @@ class BluezPairingController:
             raise BluetoothControlError(
                 "scan duration must be greater than 0 and at most 30 seconds"
             )
-        await self._prepare_for_server_pairing()
+        await self._prepare_adapter()
+        await self._disable_incoming_pairing()
         adapter = await self._proxy_interface(self.adapter_path, ADAPTER_INTERFACE)
         try:
             await adapter.call_set_discovery_filter({"Transport": Variant("s", "bredr")})
@@ -279,13 +283,15 @@ class BluezPairingController:
         await properties.call_set(DEVICE_INTERFACE, name, value)
 
     async def pair(self, address: str) -> dict[str, Any]:
-        await self._prepare_for_server_pairing()
+        await self._prepare_adapter()
         path = await self._find_device_path(address)
         objects = await self._managed_objects()
         current = _device_record(path, objects[path][DEVICE_INTERFACE])
         agent: ServerInitiatedPairingAgent | None = None
         agent_manager = None
         agent_registered = False
+        restore_pairable: bool | None = None
+        pairing_succeeded = False
 
         try:
             if not current["paired"]:
@@ -297,6 +303,15 @@ class BluezPairingController:
                 await agent_manager.call_register_agent(PAIR_AGENT_PATH, PAIR_AGENT_CAPABILITY)
                 agent_registered = True
 
+                # BlueZ maps Adapter1.Pairable to the controller's bondable
+                # setting. It must be enabled while Device1.Pair() exchanges
+                # persistent link keys. The targeted agent still rejects any
+                # device other than the administrator-selected phone.
+                adapter = await self._adapter_properties()
+                restore_pairable = bool(adapter["pairable"])
+                if not restore_pairable:
+                    await self._set_adapter_property("Pairable", Variant("b", True))
+
                 device = await self._proxy_interface(path, DEVICE_INTERFACE)
                 try:
                     await asyncio.wait_for(device.call_pair(), timeout=PAIR_TIMEOUT_SECONDS)
@@ -304,10 +319,28 @@ class BluezPairingController:
                     raise BluetoothControlError("Bluetooth pairing timed out") from exc
                 except DBusError as exc:
                     raise BluetoothControlError(f"Bluetooth pairing failed: {exc}") from exc
+            else:
+                # This controller also needs bondable enabled for a bonded
+                # Android peer to initiate its subsequent SDP/RFCOMM link.
+                adapter = await self._adapter_properties()
+                restore_pairable = bool(adapter["pairable"])
+                if not restore_pairable:
+                    await self._set_adapter_property("Pairable", Variant("b", True))
 
             await self._set_device_property(path, "Trusted", Variant("b", True))
+            # Device1.Pair() can return before an older Android stack finishes
+            # post-pair service discovery. Verify the bond after that exchange
+            # instead of reporting a transient Paired=true value to Cockpit.
+            if agent_registered:
+                await asyncio.sleep(PAIR_VERIFY_SECONDS)
             refreshed = await self._managed_objects()
             record = _device_record(path, refreshed[path][DEVICE_INTERFACE])
+            if not record["paired"] or not record["bonded"]:
+                raise BluetoothControlError(
+                    "Bluetooth pairing completed but the bond did not persist; "
+                    "remove the pairing on the phone and retry while the RFCOMM server is running"
+                )
+            pairing_succeeded = True
             return {
                 "ok": True,
                 "policy": "server-initiated-first-pair",
@@ -320,6 +353,11 @@ class BluezPairingController:
                     await agent_manager.call_unregister_agent(PAIR_AGENT_PATH)
                 except DBusError:
                     LOGGER.debug("unable to unregister temporary pairing agent", exc_info=True)
+            if restore_pairable is False and not pairing_succeeded:
+                try:
+                    await self._set_adapter_property("Pairable", Variant("b", False))
+                except DBusError:
+                    LOGGER.warning("unable to restore non-pairable adapter state", exc_info=True)
 
     async def remove(self, address: str) -> dict[str, Any]:
         path = await self._find_device_path(address)

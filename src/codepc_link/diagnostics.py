@@ -14,6 +14,22 @@ from typing import Any
 
 COMMAND_TIMEOUT_SECONDS = 5
 SUPPORTED_TRANSPORTS = {"ble", "rfcomm", "all"}
+UNRELATED_RFCOMM_PROFILE_UUIDS = {
+    "00001105-0000-1000-8000-00805f9b34fb": "OBEX object push",
+    "00001106-0000-1000-8000-00805f9b34fb": "OBEX file transfer",
+    "00001108-0000-1000-8000-00805f9b34fb": "headset",
+    "0000110a-0000-1000-8000-00805f9b34fb": "audio source",
+    "0000110b-0000-1000-8000-00805f9b34fb": "audio sink",
+    "0000110c-0000-1000-8000-00805f9b34fb": "A/V remote control target",
+    "0000110e-0000-1000-8000-00805f9b34fb": "A/V remote control",
+    "00001112-0000-1000-8000-00805f9b34fb": "headset audio gateway",
+    "0000111e-0000-1000-8000-00805f9b34fb": "hands-free",
+    "0000111f-0000-1000-8000-00805f9b34fb": "hands-free audio gateway",
+    "0000112e-0000-1000-8000-00805f9b34fb": "phonebook access client",
+    "0000112f-0000-1000-8000-00805f9b34fb": "phonebook access server",
+    "00001132-0000-1000-8000-00805f9b34fb": "message access server",
+    "00001133-0000-1000-8000-00805f9b34fb": "message notification server",
+}
 
 
 def _run(args: list[str]) -> tuple[int, str, str]:
@@ -109,6 +125,34 @@ def _btmgmt_info() -> dict[str, Any]:
         "supported_settings": sorted(settings),
         "stderr": stderr or None,
     }
+
+
+def _adapter_service_uuids(adapter: str) -> list[str] | None:
+    """Return service UUIDs currently exposed by one BlueZ adapter."""
+    if shutil.which("busctl") is None:
+        return None
+    returncode, stdout, _ = _run(
+        [
+            "busctl",
+            "--system",
+            "get-property",
+            "org.bluez",
+            f"/org/bluez/{adapter}",
+            "org.bluez.Adapter1",
+            "UUIDs",
+        ]
+    )
+    if returncode != 0:
+        return None
+    return sorted(
+        {
+            match.group(0).lower()
+            for match in re.finditer(
+                r"[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}",
+                stdout,
+            )
+        }
+    )
 
 
 def _bluez_interface_available_at(path: str, interface: str) -> bool | None:
@@ -246,6 +290,7 @@ def collect_diagnostics(transport: str = "ble") -> dict[str, Any]:
         if transport in {"rfcomm", "all"}
         else False
     )
+    adapter_service_uuids = _adapter_service_uuids(adapter) if adapter else None
 
     bluez_version = _first_version(["bluetoothctl", "--version"])
     checks: list[dict[str, str]] = []
@@ -314,6 +359,32 @@ def collect_diagnostics(transport: str = "ble") -> dict[str, Any]:
                 "BR/EDR",
             )
         )
+        if adapter_service_uuids is None:
+            checks.append(
+                _check(
+                    "profile_isolation",
+                    "unknown",
+                    "adapter service UUIDs unavailable",
+                )
+            )
+        else:
+            unrelated_profiles = [
+                UNRELATED_RFCOMM_PROFILE_UUIDS[uuid]
+                for uuid in adapter_service_uuids
+                if uuid in UNRELATED_RFCOMM_PROFILE_UUIDS
+            ]
+            checks.append(
+                _check(
+                    "profile_isolation",
+                    "warn" if unrelated_profiles else "pass",
+                    (
+                        "shared adapter also advertises: "
+                        + ", ".join(unrelated_profiles)
+                        if unrelated_profiles
+                        else "no unrelated desktop Bluetooth profiles advertised"
+                    ),
+                )
+            )
 
     blockers = [check for check in checks if check["status"] == "fail"]
 
@@ -350,6 +421,7 @@ def collect_diagnostics(transport: str = "ble") -> dict[str, Any]:
             "le_advertising_manager": advertising_manager,
             "gatt_manager": gatt_manager,
             "profile_manager": profile_manager,
+            "advertised_service_uuids": adapter_service_uuids,
         },
         "checks": checks,
     }
