@@ -59,6 +59,7 @@ sed \
     -e "s/@INSTALLED_SIZE@/$INSTALLED_SIZE/g" \
     "$SCRIPT_DIR/debian/control.in" >"$STAGING_DIR/DEBIAN/control"
 
-PACKAGE_PATH="$OUTPUT_DIR/codepc-link_${VERSION}_all.deb"
+PACKAGE_FILE_VERSION=$(printf '%s' "$VERSION" | tr '~' '.')
+PACKAGE_PATH="$OUTPUT_DIR/codepc-link_${PACKAGE_FILE_VERSION}_all.deb"
 dpkg-deb --build --root-owner-group "$STAGING_DIR" "$PACKAGE_PATH"
 echo "$PACKAGE_PATH"

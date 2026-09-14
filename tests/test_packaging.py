@@ -35,7 +35,7 @@ def test_debug_debian_package_contains_runtime(tmp_path: Path) -> None:
         check=True,
         capture_output=True,
     )
-    package = tmp_path / "codepc-link_0.1.0~test1_all.deb"
+    package = tmp_path / "codepc-link_0.1.0.test1_all.deb"
     listing = subprocess.run(
         ["dpkg-deb", "--contents", package],
         check=True,
