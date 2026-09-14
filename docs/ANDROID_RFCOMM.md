@@ -79,11 +79,17 @@ git pull
 python -m pip install -e '.[dev]'
 mkdir -p ~/.local/state/codepc-link
 codepc-link doctor --transport rfcomm
+sudo sh packaging/install-rfcomm-service.sh
 sudo sh packaging/install-cockpit-plugin.sh
-codepc-link serve-rfcomm --state-dir ~/.local/state/codepc-link --verbose
 ```
 
-A healthy server reaches `rfcomm.server.stage=ready`.
+In Cockpit, enable **Keep RFCOMM server alive**. A healthy service reaches
+`rfcomm.server.stage=ready`; systemd restarts it automatically if it exits. For
+a foreground development run instead, leave keep-alive disabled and run:
+
+```bash
+codepc-link serve-rfcomm --state-dir ~/.local/state/codepc-link --verbose
+```
 
 For a pairing test, `doctor --transport rfcomm` also reports
 `profile_isolation`. A warning means the same physical adapter is advertising
@@ -109,7 +115,12 @@ Then test the app:
 4. Tap **Connect**.
 5. Tap **Request status**.
 6. Verify the hostname and network addresses match `codepc-link status --json` on the PC.
-7. Tap **Open Cockpit** and verify the selected IP reaches Cockpit over the phone's normal IP network.
+7. Open the **Cockpit** tab and verify the selected IP reaches Cockpit over the phone's normal IP network.
+8. For a self-signed Cockpit certificate, compare the displayed fingerprint and explicitly approve it for the current app session. The app never silently bypasses TLS errors.
+
+The embedded Cockpit tab requires a current Android System WebView. Older Android
+devices may need the WebView component updated from Google Play before Cockpit's
+current JavaScript can load. **Open externally** remains available as a fallback.
 
 ## R1 native-app pass criteria
 

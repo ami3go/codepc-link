@@ -1,0 +1,4 @@
+#!/usr/bin/python3
+from codepc_link.cli import main
+
+raise SystemExit(main())

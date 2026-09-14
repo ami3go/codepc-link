@@ -24,17 +24,19 @@ Open Cockpit over IP
 
 Do not select the CodePC from Android's Pair new device list during the first pair. Android only needs to be discoverable so the CodePC can find it.
 
-## Install the Python package
+## Install the server
 
-Install CodePC Link system-wide so Cockpit elevation can find both commands:
+Install the isolated server runtime and systemd unit from the repository root:
 
 ```bash
-python -m pip install .
+sudo sh packaging/install-rfcomm-service.sh
 command -v codepc-link
 command -v codepc-link-bt
 ```
 
-For a development checkout, use an environment/install method that makes `codepc-link-bt` visible in the root/elevated PATH used by Cockpit.
+The installer creates a dedicated virtual environment under `/opt/codepc-link`
+and exposes the two commands through `/usr/local/bin` so Cockpit privilege
+elevation can find them.
 
 ## Install the Cockpit page
 
@@ -45,6 +47,14 @@ sudo sh packaging/install-cockpit-plugin.sh
 ```
 
 Reload Cockpit. A **CodePC Link** item should appear in the Cockpit menu.
+
+Enable **Keep RFCOMM server alive** on that page. This enables and starts
+`codepc-link-rfcomm.service`; systemd starts it at boot and restarts it within
+three seconds if the process exits. Turning the checkbox off stops and disables
+the service. On each start, the unit also restores the adapter's BR/EDR
+connectable setting before launching the unprivileged server process. When the
+guard is enabled, Cockpit first stops a same-named per-user development server
+to prevent two RFCOMM profiles from competing for the service UUID.
 
 The page uses Cockpit privilege escalation for Bluetooth management and calls only argument-array commands; it does not construct a shell command from device names or addresses.
 
@@ -66,9 +76,9 @@ verified bond because some controllers otherwise stop accepting the bonded
 phone's incoming SDP/RFCOMM connection. The always-on CodePC agent continues to
 reject unsolicited first-pair requests from other devices.
 
-## Run the RFCOMM server
+## Run the RFCOMM server manually
 
-For source-checkout testing:
+For source-checkout testing without the installed keep-alive service:
 
 ```bash
 mkdir -p ~/.local/state/codepc-link
@@ -97,7 +107,8 @@ After installation:
 4. Select the CodePC.
 5. Tap **Connect**.
 6. Tap **Request status**.
-7. Use **Open Cockpit** when a suitable IP address is returned.
+7. Open the **Cockpit** tab when a suitable IP address is returned.
+8. If Cockpit uses a self-signed certificate, verify its displayed fingerprint and approve it for the current app session. Update Android System WebView if the tab reports that the installed version is too old.
 
 The selected paired CodePC address is remembered for subsequent app launches.
 

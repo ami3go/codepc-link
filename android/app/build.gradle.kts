@@ -10,8 +10,8 @@ android {
         applicationId = "com.codepc.link"
         minSdk = 23
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0-dev"
+        versionCode = 2
+        versionName = "0.1.0-debug.1"
     }
 
     buildTypes {

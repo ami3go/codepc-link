@@ -9,14 +9,23 @@ import android.bluetooth.BluetoothManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.net.http.SslCertificate
+import android.net.http.SslError
 import android.os.Build
 import android.os.Bundle
 import android.text.method.ScrollingMovementMethod
 import android.view.ViewGroup
+import android.webkit.SslErrorHandler
+import android.webkit.ConsoleMessage
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebChromeClient
+import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import java.security.MessageDigest
 
 class MainActivity : Activity() {
     private lateinit var bluetoothAdapter: BluetoothAdapter
@@ -32,6 +41,15 @@ class MainActivity : Activity() {
     private lateinit var statusButton: Button
     private lateinit var disconnectButton: Button
     private lateinit var cockpitButton: Button
+    private lateinit var connectionTabButton: Button
+    private lateinit var cockpitTabButton: Button
+    private lateinit var connectionPanel: LinearLayout
+    private lateinit var cockpitPanel: LinearLayout
+    private lateinit var cockpitAddressView: TextView
+    private lateinit var cockpitWebView: WebView
+    private var cockpitLoadedUrl: String? = null
+    private var cockpitPageProblem: String? = null
+    private val approvedSslOrigins = mutableSetOf<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -75,7 +93,42 @@ class MainActivity : Activity() {
 
         root.addView(text("CodePC Link", 26f))
         root.addView(text("Bluetooth Classic / RFCOMM"))
+
+        val tabs = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        connectionTabButton = Button(this).apply {
+            text = "Connection"
+            setOnClickListener { showConnectionTab() }
+        }
+        cockpitTabButton = Button(this).apply {
+            text = "Cockpit"
+            isEnabled = false
+            setOnClickListener { showCockpitTab() }
+        }
+        tabs.addView(
+            connectionTabButton,
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+        )
+        tabs.addView(
+            cockpitTabButton,
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+        )
+        root.addView(tabs)
+
+        connectionPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
         root.addView(
+            connectionPanel,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0,
+                1f,
+            ),
+        )
+
+        connectionPanel.addView(
             text(
                 "First pairing is controlled by the CodePC. Open Cockpit → CodePC Link on the mini-PC, " +
                     "scan for this phone, and start Pair from CodePC. This app never initiates pairing.",
@@ -85,47 +138,47 @@ class MainActivity : Activity() {
 
         deviceView = text("Paired PC: not selected")
         connectionView = text("Disconnected")
-        root.addView(deviceView)
-        root.addView(connectionView)
+        connectionPanel.addView(deviceView)
+        connectionPanel.addView(connectionView)
 
         val chooseButton = Button(this).apply {
             text = "Choose paired CodePC"
             setOnClickListener { choosePairedDevice() }
         }
-        root.addView(chooseButton)
+        connectionPanel.addView(chooseButton)
 
         connectButton = Button(this).apply {
             text = "Connect"
             setOnClickListener { connectSelectedDevice() }
         }
-        root.addView(connectButton)
+        connectionPanel.addView(connectButton)
 
         statusButton = Button(this).apply {
             text = "Request status"
             isEnabled = false
             setOnClickListener { requestStatus() }
         }
-        root.addView(statusButton)
+        connectionPanel.addView(statusButton)
 
         disconnectButton = Button(this).apply {
             text = "Disconnect"
             isEnabled = false
             setOnClickListener { disconnect() }
         }
-        root.addView(disconnectButton)
+        connectionPanel.addView(disconnectButton)
 
         cockpitButton = Button(this).apply {
             text = "Open Cockpit"
             isEnabled = false
             setOnClickListener { openCockpit() }
         }
-        root.addView(cockpitButton)
+        connectionPanel.addView(cockpitButton)
 
         resultView = text("No status received yet.").apply {
             setTextIsSelectable(true)
             movementMethod = ScrollingMovementMethod()
         }
-        root.addView(
+        connectionPanel.addView(
             resultView,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -133,6 +186,102 @@ class MainActivity : Activity() {
                 1f,
             ),
         )
+
+        cockpitPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = LinearLayout.GONE
+        }
+        cockpitAddressView = text("Request status to discover the Cockpit address.", 14f).apply {
+            setTextIsSelectable(true)
+        }
+        cockpitPanel.addView(cockpitAddressView)
+
+        val webControls = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        webControls.addView(
+            Button(this).apply {
+                text = "Reload"
+                setOnClickListener { cockpitWebView.reload() }
+            },
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+        )
+        webControls.addView(
+            Button(this).apply {
+                text = "Open externally"
+                setOnClickListener { openCockpit() }
+            },
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+        )
+        cockpitPanel.addView(webControls)
+        cockpitPanel.addView(
+            Button(this).apply {
+                text = "Update Android System WebView"
+                setOnClickListener { openWebViewUpdate() }
+            },
+        )
+
+        cockpitWebView = WebView(this).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.allowFileAccess = false
+            settings.allowContentAccess = false
+            settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            webChromeClient = object : WebChromeClient() {
+                override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
+                    if (
+                        consoleMessage.messageLevel() == ConsoleMessage.MessageLevel.ERROR &&
+                        consoleMessage.message().contains("SyntaxError", ignoreCase = true)
+                    ) {
+                        cockpitPageProblem =
+                            "Cockpit needs a newer Android System WebView. " +
+                            "Installed: ${installedWebViewVersion()}. Update WebView, restart this app, " +
+                            "and request status again."
+                        cockpitAddressView.text = cockpitPageProblem
+                    }
+                    return super.onConsoleMessage(consoleMessage)
+                }
+            }
+            webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(
+                    view: WebView,
+                    request: WebResourceRequest,
+                ): Boolean = handleWebNavigation(request.url)
+
+                @Suppress("DEPRECATION")
+                override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean =
+                    handleWebNavigation(Uri.parse(url))
+
+                override fun onPageFinished(view: WebView, url: String) {
+                    cockpitAddressView.text = cockpitPageProblem ?: url
+                }
+
+                override fun onReceivedSslError(
+                    view: WebView,
+                    handler: SslErrorHandler,
+                    error: SslError,
+                ) {
+                    handleCockpitSslError(handler, error)
+                }
+            }
+        }
+        cockpitPanel.addView(
+            cockpitWebView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0,
+                1f,
+            ),
+        )
+        root.addView(
+            cockpitPanel,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0,
+                1f,
+            ),
+        )
+        showConnectionTab()
         return root
     }
 
@@ -179,8 +328,7 @@ class MainActivity : Activity() {
             .setItems(labels) { _, which ->
                 selectedDevice = devices[which]
                 rememberSelectedDevice(devices[which])
-                cockpitUrl = null
-                cockpitButton.isEnabled = false
+                updateCockpitTarget(null)
                 updateSelectedDevice()
             }
             .setNegativeButton("Cancel", null)
@@ -265,9 +413,9 @@ class MainActivity : Activity() {
                         runCatching { StatusProtocol.parseResponse(line) }
                             .onSuccess { parsed ->
                                 resultView.text = parsed.summary + "\n\nRaw response:\n" + parsed.raw
-                                cockpitUrl = parsed.cockpitUrl
-                                cockpitButton.isEnabled = parsed.cockpitUrl != null
+                                updateCockpitTarget(parsed.cockpitUrl)
                                 setConnection("Status received")
+                                if (parsed.cockpitUrl != null) showCockpitTab()
                             }
                             .onFailure { error ->
                                 resultView.text = line
@@ -301,6 +449,128 @@ class MainActivity : Activity() {
         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target)))
     }
 
+    private fun updateCockpitTarget(target: String?) {
+        cockpitUrl = target
+        cockpitButton.isEnabled = target != null
+        cockpitTabButton.isEnabled = target != null
+        cockpitLoadedUrl = null
+        cockpitPageProblem = null
+        cockpitWebView.stopLoading()
+        cockpitWebView.loadUrl("about:blank")
+        cockpitWebView.clearHistory()
+        cockpitAddressView.text = target ?: "Request status to discover the Cockpit address."
+        if (target == null) showConnectionTab()
+    }
+
+    private fun showConnectionTab() {
+        connectionPanel.visibility = LinearLayout.VISIBLE
+        cockpitPanel.visibility = LinearLayout.GONE
+        connectionTabButton.alpha = 1f
+        cockpitTabButton.alpha = 0.65f
+    }
+
+    private fun showCockpitTab() {
+        val target = cockpitUrl ?: return
+        connectionPanel.visibility = LinearLayout.GONE
+        cockpitPanel.visibility = LinearLayout.VISIBLE
+        connectionTabButton.alpha = 0.65f
+        cockpitTabButton.alpha = 1f
+        if (cockpitLoadedUrl != target) {
+            cockpitLoadedUrl = target
+            cockpitPageProblem = null
+            cockpitAddressView.text = target
+            cockpitWebView.loadUrl(target)
+        }
+    }
+
+    private fun handleWebNavigation(uri: Uri): Boolean {
+        val allowed = Uri.parse(cockpitUrl ?: return true)
+        val staysOnSelectedPc = sameOrigin(uri, allowed)
+        if (!staysOnSelectedPc) {
+            startActivity(Intent(Intent.ACTION_VIEW, uri))
+        }
+        return !staysOnSelectedPc
+    }
+
+    private fun handleCockpitSslError(handler: SslErrorHandler, error: SslError) {
+        val target = Uri.parse(cockpitUrl ?: run {
+            handler.cancel()
+            return
+        })
+        val failed = Uri.parse(error.url)
+        if (!sameOrigin(failed, target)) {
+            handler.cancel()
+            return
+        }
+
+        val origin = "${target.scheme}://${target.host}:${target.port}"
+        if (origin in approvedSslOrigins) {
+            handler.proceed()
+            return
+        }
+
+        val fingerprint = certificateFingerprint(error.certificate)
+        val detail = buildString {
+            appendLine("Android does not trust the Cockpit certificate for:")
+            appendLine(origin)
+            appendLine()
+            appendLine("Certificate: ${error.certificate.issuedTo.cName ?: "unknown"}")
+            if (fingerprint != null) appendLine("SHA-256: $fingerprint")
+            appendLine()
+            append("Continue only if this is your CodePC. Approval lasts until the app closes.")
+        }
+        cockpitAddressView.text = "Cockpit certificate confirmation required"
+
+        AlertDialog.Builder(this)
+            .setTitle("Untrusted Cockpit certificate")
+            .setMessage(detail)
+            .setPositiveButton("Continue this session") { _, _ ->
+                approvedSslOrigins += origin
+                handler.proceed()
+            }
+            .setNegativeButton("Open externally") { _, _ ->
+                handler.cancel()
+                openCockpit()
+            }
+            .setOnCancelListener { handler.cancel() }
+            .show()
+    }
+
+    private fun sameOrigin(first: Uri, second: Uri): Boolean =
+        first.scheme == "https" &&
+            first.scheme == second.scheme &&
+            first.host == second.host &&
+            first.port == second.port
+
+    @Suppress("DEPRECATION")
+    private fun installedWebViewVersion(): String = runCatching {
+        packageManager.getPackageInfo("com.google.android.webview", 0).versionName ?: "unknown"
+    }.getOrDefault("unknown")
+
+    private fun openWebViewUpdate() {
+        val packageUri = Uri.parse("market://details?id=com.google.android.webview")
+        val storeIntent = Intent(Intent.ACTION_VIEW, packageUri)
+        runCatching { startActivity(storeIntent) }
+            .onFailure {
+                startActivity(
+                    Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse(
+                            "https://play.google.com/store/apps/details?id=com.google.android.webview",
+                        ),
+                    ),
+                )
+            }
+    }
+
+    private fun certificateFingerprint(certificate: SslCertificate): String? = runCatching {
+        val state = SslCertificate.saveState(certificate)
+        val encoded = state.getByteArray("x509-certificate") ?: return@runCatching null
+        MessageDigest.getInstance("SHA-256")
+            .digest(encoded)
+            .joinToString(":") { byte -> "%02X".format(byte.toInt() and 0xff) }
+    }.getOrNull()
+
     private fun setConnection(message: String) {
         connectionView.text = message
     }
@@ -317,6 +587,8 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         client.close()
+        cockpitWebView.stopLoading()
+        cockpitWebView.destroy()
         super.onDestroy()
     }
 

@@ -7,12 +7,16 @@
     statusDot: document.querySelector("#status-dot"),
     statusTitle: document.querySelector("#status-title"),
     statusDetail: document.querySelector("#status-detail"),
+    serverGuard: document.querySelector("#server-guard-toggle"),
+    serverGuardDetail: document.querySelector("#server-guard-detail"),
     adapterSummary: document.querySelector("#adapter-summary"),
     deviceList: document.querySelector("#device-list"),
     template: document.querySelector("#device-template"),
   };
 
   let busy = false;
+  let guardBusy = false;
+  const rfcommUnit = "codepc-link-rfcomm.service";
 
   function setBusy(value) {
     busy = value;
@@ -52,6 +56,98 @@
         environ: ["LC_ALL=C.UTF-8"],
       },
     ).then(parsePayload);
+  }
+
+  function runSystemctl(args, requirePrivilege = false) {
+    return cockpit.spawn(
+      ["systemctl", ...args],
+      {
+        superuser: requirePrivilege ? "require" : "try",
+        err: "message",
+        environ: ["LC_ALL=C.UTF-8"],
+      },
+    );
+  }
+
+  function stopDevelopmentServer() {
+    return cockpit.spawn(
+      ["systemctl", "--user", "stop", rfcommUnit],
+      { superuser: "none", err: "ignore" },
+    ).catch(() => undefined);
+  }
+
+  function parseProperties(text) {
+    const result = {};
+    for (const line of text.split("\n")) {
+      const separator = line.indexOf("=");
+      if (separator > 0) result[line.slice(0, separator)] = line.slice(separator + 1);
+    }
+    return result;
+  }
+
+  async function refreshServerGuard() {
+    try {
+      const output = await runSystemctl([
+        "show",
+        rfcommUnit,
+        "--property=LoadState",
+        "--property=ActiveState",
+        "--property=SubState",
+        "--property=UnitFileState",
+      ]);
+      const state = parseProperties(output);
+      const installed = state.LoadState === "loaded";
+      const enabled = state.UnitFileState === "enabled" || state.UnitFileState === "enabled-runtime";
+      const active = state.ActiveState === "active";
+
+      ui.serverGuard.checked = enabled;
+      ui.serverGuard.disabled = guardBusy || !installed;
+      if (!installed) {
+        ui.serverGuardDetail.textContent =
+          "Guard is not installed. Run: sudo sh packaging/install-rfcomm-service.sh";
+      } else if (enabled && active) {
+        ui.serverGuardDetail.textContent =
+          "Enabled at boot and running. systemd restarts the server within 3 seconds if it exits.";
+      } else if (enabled) {
+        ui.serverGuardDetail.textContent =
+          `Enabled and currently ${state.SubState || state.ActiveState || "starting"}. systemd will retry.`;
+      } else if (active) {
+        ui.serverGuardDetail.textContent = "Running for this session; keep-alive is not enabled at boot.";
+      } else {
+        ui.serverGuardDetail.textContent = "Stopped. Enable keep-alive to start and supervise the server.";
+      }
+    } catch (error) {
+      ui.serverGuard.disabled = true;
+      ui.serverGuardDetail.textContent = `Unable to read server guard: ${error.message}`;
+    }
+  }
+
+  async function changeServerGuard() {
+    const enable = ui.serverGuard.checked;
+    guardBusy = true;
+    ui.serverGuard.disabled = true;
+    ui.serverGuardDetail.textContent = enable
+      ? "Enabling and starting RFCOMM supervision…"
+      : "Stopping and disabling RFCOMM supervision…";
+    try {
+      if (enable) await stopDevelopmentServer();
+      await runSystemctl(
+        [enable ? "enable" : "disable", "--now", rfcommUnit],
+        true,
+      );
+      setStatus(
+        enable ? "RFCOMM keep-alive enabled" : "RFCOMM keep-alive disabled",
+        enable
+          ? "The server is running and systemd will restart it automatically."
+          : "The supervised RFCOMM server has been stopped.",
+        "positive",
+      );
+    } catch (error) {
+      setStatus("Unable to change RFCOMM keep-alive", error.message, "negative");
+    } finally {
+      guardBusy = false;
+      await refreshServerGuard();
+    }
   }
 
   function badge(text, tone = "neutral") {
@@ -196,7 +292,13 @@
     }
   }
 
-  ui.refresh.addEventListener("click", refresh);
+  ui.refresh.addEventListener("click", () => {
+    refresh();
+    refreshServerGuard();
+  });
   ui.scan.addEventListener("click", scan);
+  ui.serverGuard.addEventListener("change", changeServerGuard);
   refresh();
+  refreshServerGuard();
+  window.setInterval(refreshServerGuard, 10000);
 })();
