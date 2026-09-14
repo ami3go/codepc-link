@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codepc-link"
-version = "0.0.0.dev0"
+version = "0.1.0.dev1"
 description = "BLE discovery, status, and recovery companion for headless Linux mini-PC systems"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -32,6 +32,7 @@ dev = [
 
 [project.scripts]
 codepc-link = "codepc_link.cli:main"
+codepc-link-bt = "codepc_link.bluetooth_control:main"
 
 [project.urls]
 Homepage = "https://ami3go.github.io/codepc-link/"

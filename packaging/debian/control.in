@@ -1,0 +1,12 @@
+Package: codepc-link
+Version: @VERSION@
+Section: admin
+Priority: optional
+Architecture: all
+Installed-Size: @INSTALLED_SIZE@
+Maintainer: CodePC Link contributors <ami3go@users.noreply.github.com>
+Depends: python3 (>= 3.11), python3-dbus-next (>= 0.2.3), bluez, network-manager, cockpit
+Homepage: https://github.com/ami3go/codepc-link
+Description: Bluetooth status and Cockpit discovery companion
+ CodePC Link provides a secure Bluetooth Classic RFCOMM status service,
+ server-initiated Android pairing controls, and a Cockpit management page.

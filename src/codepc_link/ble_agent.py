@@ -21,6 +21,7 @@ AUTHORIZED_SERVICE_UUIDS = {
     MANAGEMENT_SERVICE_UUID.lower(),
     RFCOMM_SERVICE_UUID.lower(),
 }
+PAIRING_POLICY_MESSAGE = "Initial pairing must be initiated from the CodePC Cockpit page"
 
 
 def _rejected(message: str) -> DBusError:
@@ -28,13 +29,13 @@ def _rejected(message: str) -> DBusError:
 
 
 class PairingAgent(ServiceInterface):
-    """Headless Just Works agent for CodePC Link Bluetooth services.
+    """Service-authorization agent that rejects unsolicited first pairing.
 
-    CodePC Link currently exposes read-only status. The agent therefore uses
-    BlueZ's NoInputNoOutput capability: incoming Just Works pairing requests are
-    accepted so BlueZ can establish an authenticated/encrypted transport. Requests
-    that require entering a PIN/passkey are rejected because this agent
-    intentionally has no input capability.
+    The always-on CodePC Link transport is intentionally not allowed to accept
+    a phone's initial pairing request. An administrator must start the first pair
+    from the server-side Cockpit page, which uses a short-lived targeted pairing
+    agent. Once the device is paired/trusted, this agent may authorize only the
+    CodePC Link service UUIDs.
     """
 
     def __init__(self) -> None:
@@ -42,13 +43,12 @@ class PairingAgent(ServiceInterface):
 
     @method()
     def Release(self):
-        """BlueZ callback after the agent has been unregistered."""
         LOGGER.info("bluetooth.pairing agent released by BlueZ")
 
     @method()
     def RequestPinCode(self, device: "o") -> "s":
-        LOGGER.warning("bluetooth.pairing PIN requested device=%s; rejecting", device)
-        raise _rejected("CodePC Link has no PIN input capability")
+        LOGGER.warning("incoming pairing PIN requested device=%s; rejecting", device)
+        raise _rejected(PAIRING_POLICY_MESSAGE)
 
     @method()
     def DisplayPinCode(self, device: "o", pincode: "s"):
@@ -56,8 +56,8 @@ class PairingAgent(ServiceInterface):
 
     @method()
     def RequestPasskey(self, device: "o") -> "u":
-        LOGGER.warning("bluetooth.pairing passkey requested device=%s; rejecting", device)
-        raise _rejected("CodePC Link has no passkey input capability")
+        LOGGER.warning("incoming pairing passkey requested device=%s; rejecting", device)
+        raise _rejected(PAIRING_POLICY_MESSAGE)
 
     @method()
     def DisplayPasskey(self, device: "o", passkey: "u", entered: "q"):
@@ -69,25 +69,27 @@ class PairingAgent(ServiceInterface):
 
     @method()
     def RequestConfirmation(self, device: "o", passkey: "u"):
-        LOGGER.info("bluetooth.pairing confirmation accepted device=%s", device)
+        LOGGER.warning("incoming pairing confirmation requested device=%s; rejecting", device)
+        raise _rejected(PAIRING_POLICY_MESSAGE)
 
     @method()
     def RequestAuthorization(self, device: "o"):
-        LOGGER.info("bluetooth.pairing Just Works authorization accepted device=%s", device)
+        LOGGER.warning("incoming pairing authorization requested device=%s; rejecting", device)
+        raise _rejected(PAIRING_POLICY_MESSAGE)
 
     @method()
     def AuthorizeService(self, device: "o", uuid: "s"):
         normalized_uuid = uuid.lower()
         if normalized_uuid not in AUTHORIZED_SERVICE_UUIDS:
             LOGGER.warning(
-                "bluetooth.pairing service authorization rejected device=%s uuid=%s",
+                "bluetooth service authorization rejected device=%s uuid=%s",
                 device,
                 uuid,
             )
             raise _rejected("Only CodePC Link services are authorized")
 
         LOGGER.info(
-            "bluetooth.pairing service authorization accepted device=%s uuid=%s",
+            "bluetooth service authorization accepted device=%s uuid=%s",
             device,
             uuid,
         )
