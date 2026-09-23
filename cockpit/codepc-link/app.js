@@ -14,17 +14,15 @@
     template: document.querySelector("#device-template"),
   };
 
+  const hidUnit = "codepc-link-hid.service";
   let busy = false;
   let guardBusy = false;
-  const rfcommUnit = "codepc-link-rfcomm.service";
 
   function setBusy(value) {
     busy = value;
     ui.refresh.disabled = value;
     ui.scan.disabled = value;
-    for (const button of ui.deviceList.querySelectorAll("button")) {
-      button.disabled = value;
-    }
+    for (const button of ui.deviceList.querySelectorAll("button")) button.disabled = value;
   }
 
   function setStatus(title, detail, tone = "neutral") {
@@ -40,16 +38,13 @@
     } catch (error) {
       throw new Error(`CodePC Link returned invalid JSON: ${error.message}`);
     }
-    if (!payload.ok) {
-      const message = payload.error?.message || "Bluetooth operation failed";
-      throw new Error(message);
-    }
+    if (!payload.ok) throw new Error(payload.error?.message || "Bluetooth operation failed");
     return payload;
   }
 
   function runBluetooth(args) {
     return cockpit.spawn(
-      ["codepc-link-bt", ...args],
+      ["codepc-link-hid-bt", ...args],
       {
         superuser: "require",
         err: "message",
@@ -69,13 +64,6 @@
     );
   }
 
-  function stopDevelopmentServer() {
-    return cockpit.spawn(
-      ["systemctl", "--user", "stop", rfcommUnit],
-      { superuser: "none", err: "ignore" },
-    ).catch(() => undefined);
-  }
-
   function parseProperties(text) {
     const result = {};
     for (const line of text.split("\n")) {
@@ -89,7 +77,7 @@
     try {
       const output = await runSystemctl([
         "show",
-        rfcommUnit,
+        hidUnit,
         "--property=LoadState",
         "--property=ActiveState",
         "--property=SubState",
@@ -104,21 +92,21 @@
       ui.serverGuard.disabled = guardBusy || !installed;
       if (!installed) {
         ui.serverGuardDetail.textContent =
-          "Guard is not installed. Run: sudo sh packaging/install-rfcomm-service.sh";
+          "HID server is not installed. Run: sudo sh packaging/install-hid-service.sh";
       } else if (enabled && active) {
         ui.serverGuardDetail.textContent =
-          "Enabled at boot and running. systemd restarts the server within 3 seconds if it exits.";
+          "Enabled at boot and running. The service waits for the Android hidraw device and pushes status every 5 seconds.";
       } else if (enabled) {
         ui.serverGuardDetail.textContent =
           `Enabled and currently ${state.SubState || state.ActiveState || "starting"}. systemd will retry.`;
       } else if (active) {
-        ui.serverGuardDetail.textContent = "Running for this session; keep-alive is not enabled at boot.";
+        ui.serverGuardDetail.textContent = "Running for this session; boot supervision is disabled.";
       } else {
-        ui.serverGuardDetail.textContent = "Stopped. Enable keep-alive to start and supervise the server.";
+        ui.serverGuardDetail.textContent = "Stopped. Enable it to start and supervise the HID status server.";
       }
     } catch (error) {
       ui.serverGuard.disabled = true;
-      ui.serverGuardDetail.textContent = `Unable to read server guard: ${error.message}`;
+      ui.serverGuardDetail.textContent = `Unable to read HID server state: ${error.message}`;
     }
   }
 
@@ -127,23 +115,19 @@
     guardBusy = true;
     ui.serverGuard.disabled = true;
     ui.serverGuardDetail.textContent = enable
-      ? "Enabling and starting RFCOMM supervision…"
-      : "Stopping and disabling RFCOMM supervision…";
+      ? "Enabling HID status server…"
+      : "Stopping HID status server…";
     try {
-      if (enable) await stopDevelopmentServer();
-      await runSystemctl(
-        [enable ? "enable" : "disable", "--now", rfcommUnit],
-        true,
-      );
+      await runSystemctl([enable ? "enable" : "disable", "--now", hidUnit], true);
       setStatus(
-        enable ? "RFCOMM keep-alive enabled" : "RFCOMM keep-alive disabled",
+        enable ? "HID server enabled" : "HID server disabled",
         enable
-          ? "The server is running and systemd will restart it automatically."
-          : "The supervised RFCOMM server has been stopped.",
+          ? "The server is supervised and will wait for the phone HID connection."
+          : "The HID status server has been stopped.",
         "positive",
       );
     } catch (error) {
-      setStatus("Unable to change RFCOMM keep-alive", error.message, "negative");
+      setStatus("Unable to change HID server", error.message, "negative");
     } finally {
       guardBusy = false;
       await refreshServerGuard();
@@ -163,7 +147,7 @@
       return;
     }
     const state = adapter.powered ? "powered" : "off";
-    const pairing = adapter.pairable ? "remote pairing enabled" : "server-side pairing only";
+    const pairing = adapter.pairable ? "pairing window open" : "server-side pairing only";
     const address = adapter.address ? ` · ${adapter.address}` : "";
     ui.adapterSummary.textContent = `${adapter.name} · ${state} · ${pairing}${address}`;
   }
@@ -176,14 +160,14 @@
     if (devices.length === 0) {
       const empty = document.createElement("p");
       empty.className = "empty";
-      empty.textContent = "No Bluetooth devices are known yet. Put the phone in Android's Pair new device screen and scan again.";
+      empty.textContent =
+        "No devices found. Keep the CodePC Link HID app open, make the phone discoverable, and scan again.";
       ui.deviceList.append(empty);
       return;
     }
 
     for (const device of devices) {
       const fragment = ui.template.content.cloneNode(true);
-      const card = fragment.querySelector(".device-card");
       fragment.querySelector(".device-name").textContent = device.name || "Unnamed Bluetooth device";
       fragment.querySelector(".device-address").textContent = device.address || "Unknown address";
 
@@ -214,12 +198,12 @@
         actions.append(pair);
       }
 
-      card.dataset.address = device.address || "";
       ui.deviceList.append(fragment);
     }
   }
 
   async function refresh() {
+    if (busy) return;
     setBusy(true);
     setStatus("Loading Bluetooth devices", "Reading BlueZ device state…", "working");
     try {
@@ -234,16 +218,17 @@
   }
 
   async function scan() {
+    if (busy) return;
     setBusy(true);
     setStatus(
-      "Scanning for phones",
-      "Keep Android on the Pair new device screen. Pairing will still be initiated only from CodePC.",
+      "Scanning for phone",
+      "Keep CodePC Link HID open on Android and keep the phone discoverable.",
       "working",
     );
     try {
       const payload = await runBluetooth(["scan", "--seconds", "8"]);
       renderDevices(payload);
-      setStatus("Scan complete", "Choose the phone and click Pair from CodePC.", "positive");
+      setStatus("Scan complete", "Choose the Android phone and click Pair from CodePC.", "positive");
     } catch (error) {
       setStatus("Bluetooth scan failed", error.message, "negative");
     } finally {
@@ -256,7 +241,7 @@
     setBusy(true);
     setStatus(
       `Pairing ${label}`,
-      "Confirm the Bluetooth pairing prompt on the Android phone if it appears.",
+      "Confirm the pairing prompt on Android. Keep the HID app in the foreground.",
       "working",
     );
     try {
@@ -264,7 +249,7 @@
       const paired = payload.device || device;
       setStatus(
         `Paired ${paired.name || paired.address}`,
-        "The phone is now paired and trusted. Open the CodePC Link Android app and choose this paired CodePC.",
+        "Now choose this CodePC as the paired host in the Android app and connect HID.",
         "positive",
       );
       await refresh();
@@ -278,12 +263,11 @@
   async function removeDevice(device) {
     const label = device.name || device.address || "device";
     if (!window.confirm(`Remove Bluetooth pairing for ${label}?`)) return;
-
     setBusy(true);
-    setStatus(`Removing ${label}`, "Deleting the BlueZ pairing record…", "working");
+    setStatus(`Removing ${label}`, "Deleting the BlueZ bond…", "working");
     try {
       await runBluetooth(["remove", device.address]);
-      setStatus("Pairing removed", `${label} must be paired again from this CodePC page.`, "positive");
+      setStatus("Pairing removed", `${label} must be paired again from this page.`, "positive");
       await refresh();
     } catch (error) {
       setStatus("Unable to remove pairing", error.message, "negative");
@@ -298,6 +282,7 @@
   });
   ui.scan.addEventListener("click", scan);
   ui.serverGuard.addEventListener("change", changeServerGuard);
+
   refresh();
   refreshServerGuard();
   window.setInterval(refreshServerGuard, 10000);

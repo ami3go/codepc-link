@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>CodePC Link</title>
+  <title>CodePC Link HID</title>
   <link rel="stylesheet" href="styles.css">
   <script src="../base1/cockpit.js"></script>
 </head>
@@ -12,24 +12,25 @@
     <header class="page-header">
       <div>
         <p class="eyebrow">CodePC Link</p>
-        <h1>Bluetooth pairing</h1>
-        <p class="subtitle">Pair the Android app from the CodePC side, then use RFCOMM for status and Cockpit discovery.</p>
+        <h1>Android HID pairing</h1>
+        <p class="subtitle">The phone is a vendor-defined Bluetooth HID device; CodePC is the HID host.</p>
       </div>
       <div class="actions">
         <button id="refresh-button" type="button" class="secondary">Refresh</button>
-        <button id="scan-button" type="button">Scan for phones</button>
+        <button id="scan-button" type="button">Scan for phone</button>
       </div>
     </header>
 
     <section class="policy-card">
       <h2>Server-initiated first pairing</h2>
-      <p>Initial pairing must start here. The Android app only connects to devices that Android already considers paired.</p>
+      <p>Initial pairing starts only from this CodePC. The Android app never creates the bond.</p>
       <ol>
-        <li>On the phone, open Android Bluetooth settings and choose <strong>Pair new device</strong> so the phone is discoverable.</li>
-        <li>Do not select the CodePC from the phone.</li>
-        <li>Click <strong>Scan for phones</strong> here, then <strong>Pair from CodePC</strong>.</li>
-        <li>Confirm the pairing prompt on the phone if Android asks.</li>
+        <li>Open the CodePC Link HID app on Android and keep it in the foreground.</li>
+        <li>Tap <strong>Make phone discoverable</strong> in the app.</li>
+        <li>Click <strong>Scan for phone</strong> here and then <strong>Pair from CodePC</strong>.</li>
+        <li>Confirm the Android pairing prompt. After bonding, choose the CodePC host in the app and connect HID.</li>
       </ol>
+      <p class="muted">The HID descriptor uses vendor usage page 0xFF00 and does not declare keyboard or mouse usages.</p>
     </section>
 
     <section class="status-card" aria-live="polite">
@@ -42,12 +43,12 @@
 
     <section class="server-card">
       <div>
-        <h2>RFCOMM server guard</h2>
-        <p id="server-guard-detail" class="muted">Checking server supervision…</p>
+        <h2>HID status server</h2>
+        <p id="server-guard-detail" class="muted">Checking HID server supervision…</p>
       </div>
       <label class="toggle-control" for="server-guard-toggle">
         <input id="server-guard-toggle" type="checkbox" disabled>
-        <span>Keep RFCOMM server alive</span>
+        <span>Keep HID status server alive</span>
       </label>
     </section>
 

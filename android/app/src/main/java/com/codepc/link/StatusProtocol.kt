@@ -1,29 +1,25 @@
 package com.codepc.link
 
 import org.json.JSONObject
-import java.util.UUID
 
 object StatusProtocol {
-    val RFCOMM_SERVICE_UUID: UUID = UUID.fromString("0330ce6c-09db-5189-b7ad-e16bcafac7ee")
-    const val STATUS_REQUEST = "{\"schema\":1,\"op\":\"status\"}\n"
-
     data class ParsedStatus(
         val summary: String,
         val cockpitUrl: String?,
         val raw: String,
     )
 
-    fun parseResponse(line: String): ParsedStatus {
-        val root = JSONObject(line)
+    fun parseResponse(document: String): ParsedStatus {
+        val root = JSONObject(document)
         require(root.optInt("schema", -1) == 1) { "Unsupported response schema" }
         if (!root.optBoolean("ok", false)) {
             val error = root.optJSONObject("error")
             val code = error?.optString("code", "UNKNOWN") ?: "UNKNOWN"
-            val message = error?.optString("message", "RFCOMM request failed")
-                ?: "RFCOMM request failed"
+            val message = error?.optString("message", "CodePC status request failed")
+                ?: "CodePC status request failed"
             error("$code: $message")
         }
-        require(root.optString("op") == "status") { "Unexpected RFCOMM operation" }
+        require(root.optString("op") == "status") { "Unexpected CodePC operation" }
 
         val status = root.getJSONObject("status")
         require(status.optInt("schema", -1) == 1) { "Unsupported status schema" }
@@ -51,15 +47,13 @@ object StatusProtocol {
                         if (value.isBlank()) continue
                         addressValues += value
                         val host = value.substringBefore('/')
-                        if (isUsableIpv4(host)) {
-                            cockpitCandidates += defaultRoute to host
-                        }
+                        if (isUsableIpv4(host)) cockpitCandidates += defaultRoute to host
                     }
                 }
 
                 val flags = if (defaultRoute) " default" else ""
                 interfaceLines += "- $name [$type] $link$flags: " +
-                    (addressValues.ifEmpty { listOf("no address") }.joinToString(", "))
+                    addressValues.ifEmpty { listOf("no address") }.joinToString(", ")
             }
         }
 
@@ -97,7 +91,7 @@ object StatusProtocol {
             }
         }
 
-        return ParsedStatus(summary = summary, cockpitUrl = cockpitUrl, raw = line)
+        return ParsedStatus(summary = summary, cockpitUrl = cockpitUrl, raw = document)
     }
 
     private fun isUsableIpv4(host: String): Boolean {

@@ -6,292 +6,204 @@ import android.app.AlertDialog
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.net.http.SslCertificate
-import android.net.http.SslError
 import android.os.Build
 import android.os.Bundle
 import android.text.method.ScrollingMovementMethod
 import android.view.ViewGroup
-import android.webkit.SslErrorHandler
-import android.webkit.ConsoleMessage
-import android.webkit.WebResourceRequest
-import android.webkit.WebView
-import android.webkit.WebChromeClient
-import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import java.security.MessageDigest
 
-class MainActivity : Activity() {
+class MainActivity : Activity(), BluetoothHidTransport.Listener {
     private lateinit var bluetoothAdapter: BluetoothAdapter
-    private val client = BluetoothSerialClient()
+    private lateinit var transport: BluetoothHidTransport
 
-    private var selectedDevice: BluetoothDevice? = null
+    private var selectedHost: BluetoothDevice? = null
     private var cockpitUrl: String? = null
+    private var autoPushEnabled = true
 
-    private lateinit var deviceView: TextView
-    private lateinit var connectionView: TextView
+    private lateinit var hidStateView: TextView
+    private lateinit var hostView: TextView
     private lateinit var resultView: TextView
+    private lateinit var chooseButton: Button
     private lateinit var connectButton: Button
-    private lateinit var statusButton: Button
     private lateinit var disconnectButton: Button
+    private lateinit var requestButton: Button
+    private lateinit var autoButton: Button
     private lateinit var cockpitButton: Button
-    private lateinit var connectionTabButton: Button
-    private lateinit var cockpitTabButton: Button
-    private lateinit var connectionPanel: LinearLayout
-    private lateinit var cockpitPanel: LinearLayout
-    private lateinit var cockpitAddressView: TextView
-    private lateinit var cockpitWebView: WebView
-    private var cockpitLoadedUrl: String? = null
-    private var cockpitPageProblem: String? = null
-    private val approvedSslOrigins = mutableSetOf<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val bluetoothManager = getSystemService(BluetoothManager::class.java)
-        bluetoothAdapter = bluetoothManager.adapter
-        setContentView(buildUi())
-
-        if (!packageManager.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH)) {
-            setConnection("Bluetooth Classic is not available on this device")
-            setControlsEnabled(false)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            setContentView(messageView("CodePC Link HID requires Android 9 (API 28) or newer."))
             return
         }
 
-        if (ensureConnectPermission()) {
-            restoreSelectedDevice()
-            updateSelectedDevice()
+        val manager = getSystemService(BluetoothManager::class.java)
+        val adapter = manager.adapter
+        if (adapter == null || !packageManager.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH)) {
+            setContentView(messageView("Bluetooth is not available on this phone."))
+            return
+        }
+        bluetoothAdapter = adapter
+        setContentView(buildUi())
+
+        transport = BluetoothHidTransport(this, this)
+        if (ensureBluetoothPermissions()) {
+            restoreSelectedHost()
+            refreshHostUi()
+            transport.start()
         }
     }
 
     override fun onResume() {
         super.onResume()
-        if (hasConnectPermission()) {
-            restoreSelectedDevice()
-            updateSelectedDevice()
+        if (::transport.isInitialized && hasBluetoothPermissions()) {
+            restoreSelectedHost()
+            refreshHostUi()
+            if (!transport.isRegistered) transport.ensureRegistered()
         }
     }
 
-    private fun buildUi(): LinearLayout {
+    override fun onDestroy() {
+        if (::transport.isInitialized) transport.close()
+        super.onDestroy()
+    }
+
+    private fun messageView(message: String): TextView = TextView(this).apply {
+        text = message
+        textSize = 18f
+        val padding = (24 * resources.displayMetrics.density).toInt()
+        setPadding(padding, padding, padding, padding)
+    }
+
+    private fun buildUi(): ScrollView {
         val padding = (20 * resources.displayMetrics.density).toInt()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(padding, padding, padding, padding)
         }
 
-        fun text(text: String, size: Float = 16f) = TextView(this).apply {
-            this.text = text
+        fun text(value: String, size: Float = 16f) = TextView(this).apply {
+            text = value
             textSize = size
             setPadding(0, 0, 0, padding / 2)
         }
 
-        root.addView(text("CodePC Link", 26f))
-        root.addView(text("Bluetooth Classic / RFCOMM"))
-
-        val tabs = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-        connectionTabButton = Button(this).apply {
-            text = "Connection"
-            setOnClickListener { showConnectionTab() }
-        }
-        cockpitTabButton = Button(this).apply {
-            text = "Cockpit"
-            isEnabled = false
-            setOnClickListener { showCockpitTab() }
-        }
-        tabs.addView(
-            connectionTabButton,
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
-        )
-        tabs.addView(
-            cockpitTabButton,
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
-        )
-        root.addView(tabs)
-
-        connectionPanel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
+        root.addView(text("CodePC Link HID", 26f))
         root.addView(
-            connectionPanel,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                0,
-                1f,
+            text(
+                "This phone is a vendor-defined Bluetooth HID device. It does not declare Keyboard " +
+                    "or Mouse usages, so CodePC receives data through hidraw instead of key events.",
+                14f,
             ),
         )
-
-        connectionPanel.addView(
+        root.addView(
             text(
-                "First pairing is controlled by the CodePC. Open Cockpit → CodePC Link on the mini-PC, " +
-                    "scan for this phone, and start Pair from CodePC. This app never initiates pairing.",
+                "First pair: keep this app open, make the phone discoverable, then start pairing " +
+                    "from Cockpit → CodePC Link. Do not initiate pairing from Android.",
                 14f,
             ),
         )
 
-        deviceView = text("Paired PC: not selected")
-        connectionView = text("Disconnected")
-        connectionPanel.addView(deviceView)
-        connectionPanel.addView(connectionView)
+        hidStateView = text("HID profile: starting…")
+        hostView = text("CodePC host: not selected")
+        root.addView(hidStateView)
+        root.addView(hostView)
 
-        val chooseButton = Button(this).apply {
+        root.addView(Button(this).apply {
+            text = "Make phone discoverable (120 s)"
+            setOnClickListener { requestDiscoverable() }
+        })
+
+        chooseButton = Button(this).apply {
             text = "Choose paired CodePC"
-            setOnClickListener { choosePairedDevice() }
+            setOnClickListener { choosePairedHost() }
         }
-        connectionPanel.addView(chooseButton)
+        root.addView(chooseButton)
 
         connectButton = Button(this).apply {
-            text = "Connect"
-            setOnClickListener { connectSelectedDevice() }
-        }
-        connectionPanel.addView(connectButton)
-
-        statusButton = Button(this).apply {
-            text = "Request status"
+            text = "Connect HID transport"
             isEnabled = false
-            setOnClickListener { requestStatus() }
+            setOnClickListener { connectSelectedHost() }
         }
-        connectionPanel.addView(statusButton)
+        root.addView(connectButton)
 
         disconnectButton = Button(this).apply {
-            text = "Disconnect"
+            text = "Disconnect HID"
             isEnabled = false
-            setOnClickListener { disconnect() }
+            setOnClickListener { transport.disconnect() }
         }
-        connectionPanel.addView(disconnectButton)
+        root.addView(disconnectButton)
+
+        requestButton = Button(this).apply {
+            text = "Request status now"
+            isEnabled = false
+            setOnClickListener {
+                if (!transport.requestStatus()) toast("Status request was not sent")
+            }
+        }
+        root.addView(requestButton)
+
+        autoButton = Button(this).apply {
+            text = autoButtonText()
+            isEnabled = false
+            setOnClickListener { toggleAutoPush() }
+        }
+        root.addView(autoButton)
 
         cockpitButton = Button(this).apply {
             text = "Open Cockpit"
             isEnabled = false
-            setOnClickListener { openCockpit() }
+            setOnClickListener {
+                cockpitUrl?.let { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) }
+            }
         }
-        connectionPanel.addView(cockpitButton)
+        root.addView(cockpitButton)
 
-        resultView = text("No status received yet.").apply {
+        resultView = text("No CodePC status received yet.", 14f).apply {
             setTextIsSelectable(true)
             movementMethod = ScrollingMovementMethod()
         }
-        connectionPanel.addView(
+        root.addView(
             resultView,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                0,
-                1f,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
             ),
         )
 
-        cockpitPanel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = LinearLayout.GONE
-        }
-        cockpitAddressView = text("Request status to discover the Cockpit address.", 14f).apply {
-            setTextIsSelectable(true)
-        }
-        cockpitPanel.addView(cockpitAddressView)
-
-        val webControls = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-        webControls.addView(
-            Button(this).apply {
-                text = "Reload"
-                setOnClickListener { cockpitWebView.reload() }
-            },
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
-        )
-        webControls.addView(
-            Button(this).apply {
-                text = "Open externally"
-                setOnClickListener { openCockpit() }
-            },
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
-        )
-        cockpitPanel.addView(webControls)
-        cockpitPanel.addView(
-            Button(this).apply {
-                text = "Update Android System WebView"
-                setOnClickListener { openWebViewUpdate() }
-            },
-        )
-
-        cockpitWebView = WebView(this).apply {
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
-            settings.allowFileAccess = false
-            settings.allowContentAccess = false
-            settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            webChromeClient = object : WebChromeClient() {
-                override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
-                    if (
-                        consoleMessage.messageLevel() == ConsoleMessage.MessageLevel.ERROR &&
-                        consoleMessage.message().contains("SyntaxError", ignoreCase = true)
-                    ) {
-                        cockpitPageProblem =
-                            "Cockpit needs a newer Android System WebView. " +
-                            "Installed: ${installedWebViewVersion()}. Update WebView, restart this app, " +
-                            "and request status again."
-                        cockpitAddressView.text = cockpitPageProblem
-                    }
-                    return super.onConsoleMessage(consoleMessage)
-                }
-            }
-            webViewClient = object : WebViewClient() {
-                override fun shouldOverrideUrlLoading(
-                    view: WebView,
-                    request: WebResourceRequest,
-                ): Boolean = handleWebNavigation(request.url)
-
-                @Suppress("DEPRECATION")
-                override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean =
-                    handleWebNavigation(Uri.parse(url))
-
-                override fun onPageFinished(view: WebView, url: String) {
-                    cockpitAddressView.text = cockpitPageProblem ?: url
-                }
-
-                override fun onReceivedSslError(
-                    view: WebView,
-                    handler: SslErrorHandler,
-                    error: SslError,
-                ) {
-                    handleCockpitSslError(handler, error)
-                }
-            }
-        }
-        cockpitPanel.addView(
-            cockpitWebView,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                0,
-                1f,
-            ),
-        )
-        root.addView(
-            cockpitPanel,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                0,
-                1f,
-            ),
-        )
-        showConnectionTab()
-        return root
+        return ScrollView(this).apply { addView(root) }
     }
 
-    private fun ensureConnectPermission(): Boolean {
+    private fun autoButtonText(): String =
+        if (autoPushEnabled) "Auto status: 5 s (tap to disable)" else "Auto status: off (tap for 5 s)"
+
+    private fun ensureBluetoothPermissions(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
-        if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
-            return true
+        val needed = mutableListOf<String>()
+        if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            needed += Manifest.permission.BLUETOOTH_CONNECT
         }
-        requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), REQUEST_CONNECT_PERMISSION)
+        if (checkSelfPermission(Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) {
+            needed += Manifest.permission.BLUETOOTH_ADVERTISE
+        }
+        if (needed.isEmpty()) return true
+        requestPermissions(needed.toTypedArray(), REQUEST_BLUETOOTH_PERMISSIONS)
         return false
+    }
+
+    private fun hasBluetoothPermissions(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
+        return checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(Manifest.permission.BLUETOOTH_ADVERTISE) == PackageManager.PERMISSION_GRANTED
     }
 
     override fun onRequestPermissionsResult(
@@ -300,300 +212,177 @@ class MainActivity : Activity() {
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQUEST_CONNECT_PERMISSION) {
-            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
-                restoreSelectedDevice()
-                updateSelectedDevice()
-            } else {
-                setConnection("Bluetooth permission is required to connect to CodePC")
-            }
+        if (requestCode != REQUEST_BLUETOOTH_PERMISSIONS) return
+        if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+            restoreSelectedHost()
+            refreshHostUi()
+            transport.start()
+        } else {
+            hidStateView.text = "Nearby devices permission is required for HID transport."
         }
     }
 
-    private fun choosePairedDevice() {
-        if (!ensureConnectPermission()) return
-        val devices = pairedDevices()
+    private fun requestDiscoverable() {
+        if (!ensureBluetoothPermissions()) return
+        val intent = Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE).apply {
+            putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, DISCOVERABLE_SECONDS)
+        }
+        startActivityForResult(intent, REQUEST_DISCOVERABLE)
+    }
+
+    @Deprecated("Deprecated in Android API; retained for the Bluetooth discoverability result.")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQUEST_DISCOVERABLE) return
+        if (resultCode == RESULT_CANCELED) {
+            hidStateView.text = "Discoverability canceled. HID registration remains local-only."
+        } else {
+            hidStateView.text =
+                "Phone discoverable for $resultCode s. Keep this app open and pair from CodePC Cockpit."
+        }
+        transport.ensureRegistered()
+    }
+
+    @Suppress("MissingPermission")
+    private fun pairedHosts(): List<BluetoothDevice> {
+        if (!hasBluetoothPermissions()) return emptyList()
+        return bluetoothAdapter.bondedDevices.sortedWith(compareBy({ it.name ?: "" }, { it.address }))
+    }
+
+    private fun choosePairedHost() {
+        if (!ensureBluetoothPermissions()) return
+        val devices = pairedHosts()
         if (devices.isEmpty()) {
-            Toast.makeText(
-                this,
-                "No paired devices. Start the first pair from Cockpit → CodePC Link on the mini-PC.",
-                Toast.LENGTH_LONG,
-            ).show()
+            toast("No bonded devices yet. Make this phone discoverable and pair it from CodePC Cockpit.")
             return
         }
-
         val labels = devices.map { deviceLabel(it) }.toTypedArray()
         AlertDialog.Builder(this)
-            .setTitle("Choose paired CodePC")
-            .setItems(labels) { _, which ->
-                selectedDevice = devices[which]
-                rememberSelectedDevice(devices[which])
-                updateCockpitTarget(null)
-                updateSelectedDevice()
+            .setTitle("Choose paired CodePC host")
+            .setItems(labels) { _, index ->
+                selectedHost = devices[index]
+                rememberSelectedHost(devices[index])
+                cockpitUrl = null
+                cockpitButton.isEnabled = false
+                refreshHostUi()
             }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
     @Suppress("MissingPermission")
-    private fun pairedDevices(): List<BluetoothDevice> =
-        bluetoothAdapter.bondedDevices
-            .sortedWith(compareBy({ it.name ?: "" }, { it.address }))
-
-    @Suppress("MissingPermission")
     private fun deviceLabel(device: BluetoothDevice): String =
         "${device.name ?: "Unnamed device"} · ${device.address}"
 
     @Suppress("MissingPermission")
-    private fun rememberSelectedDevice(device: BluetoothDevice) {
+    private fun rememberSelectedHost(device: BluetoothDevice) {
         getPreferences(MODE_PRIVATE)
             .edit()
-            .putString(PREF_DEVICE_ADDRESS, device.address)
+            .putString(PREF_HOST_ADDRESS, device.address)
             .apply()
     }
 
     @Suppress("MissingPermission")
-    private fun restoreSelectedDevice() {
-        if (!hasConnectPermission()) return
-        val remembered = getPreferences(MODE_PRIVATE).getString(PREF_DEVICE_ADDRESS, null)
-        if (remembered == null) {
-            if (selectedDevice == null) {
-                val codePcCandidates = pairedDevices().filter {
-                    (it.name ?: "").contains("CodePC", ignoreCase = true)
-                }
-                if (codePcCandidates.size == 1) selectedDevice = codePcCandidates.single()
-            }
-            return
+    private fun restoreSelectedHost() {
+        if (!hasBluetoothPermissions()) return
+        val devices = pairedHosts()
+        val remembered = getPreferences(MODE_PRIVATE).getString(PREF_HOST_ADDRESS, null)
+        selectedHost = when {
+            remembered != null -> devices.firstOrNull { it.address == remembered }
+            selectedHost != null -> devices.firstOrNull { it.address == selectedHost?.address }
+            else -> devices.filter { (it.name ?: "").contains("codepc", ignoreCase = true) }
+                .singleOrNull()
         }
-        selectedDevice = pairedDevices().firstOrNull { it.address == remembered }
     }
 
-    private fun updateSelectedDevice() {
-        val device = selectedDevice
-        deviceView.text = if (device == null || !hasConnectPermission()) {
-            "Paired PC: not selected"
+    private fun refreshHostUi() {
+        val host = selectedHost
+        hostView.text = if (host == null || !hasBluetoothPermissions()) {
+            "CodePC host: not selected"
         } else {
-            "Paired PC: ${deviceLabel(device)}"
+            "CodePC host: ${deviceLabel(host)}"
         }
-        connectButton.isEnabled = device != null && hasConnectPermission() && !client.connected
+        connectButton.isEnabled = host != null && transport.isRegistered && !transport.isConnected
     }
 
-    private fun connectSelectedDevice() {
-        if (!ensureConnectPermission()) return
-        val device = selectedDevice ?: return
-        setConnection("Connecting to ${deviceLabel(device)} …")
-        setControlsEnabled(false)
-        client.connect(device) { result ->
-            runOnUiThread {
-                result.fold(
-                    onSuccess = {
-                        setConnection("Connected via RFCOMM")
-                        connectButton.isEnabled = false
-                        statusButton.isEnabled = true
-                        disconnectButton.isEnabled = true
-                    },
-                    onFailure = { error ->
-                        setConnection("Connection failed: ${error.message ?: error.javaClass.simpleName}")
-                        connectButton.isEnabled = true
-                        statusButton.isEnabled = false
-                        disconnectButton.isEnabled = false
-                    },
-                )
+    private fun connectSelectedHost() {
+        if (!ensureBluetoothPermissions()) return
+        val host = selectedHost ?: return
+        hidStateView.text = "Connecting HID transport to ${deviceLabel(host)}…"
+        transport.connect(host)
+    }
+
+    private fun toggleAutoPush() {
+        autoPushEnabled = !autoPushEnabled
+        autoButton.text = autoButtonText()
+        val seconds = if (autoPushEnabled) AUTO_PUSH_SECONDS else 0
+        if (!transport.setPushInterval(seconds)) toast("Unable to change auto status interval")
+    }
+
+    override fun onHidRegistrationChanged(registered: Boolean) {
+        runOnUiThread {
+            hidStateView.text = if (registered) {
+                "HID profile registered as “${BluetoothHidTransport.HID_NAME}” (vendor-defined, not keyboard)."
+            } else {
+                "HID profile is not registered. Keep this app in the foreground."
+            }
+            refreshHostUi()
+        }
+    }
+
+    override fun onHidConnectionStateChanged(device: BluetoothDevice, state: Int) {
+        runOnUiThread {
+            val stateText = when (state) {
+                BluetoothProfile.STATE_CONNECTED -> "connected"
+                BluetoothProfile.STATE_CONNECTING -> "connecting"
+                BluetoothProfile.STATE_DISCONNECTING -> "disconnecting"
+                else -> "disconnected"
+            }
+            hidStateView.text = "HID transport $stateText: ${deviceLabel(device)}"
+            val connected = state == BluetoothProfile.STATE_CONNECTED
+            connectButton.isEnabled = !connected && selectedHost != null && transport.isRegistered
+            disconnectButton.isEnabled = connected
+            requestButton.isEnabled = connected
+            autoButton.isEnabled = connected
+            if (connected) {
+                transport.setPushInterval(if (autoPushEnabled) AUTO_PUSH_SECONDS else 0)
+                transport.requestStatus()
             }
         }
     }
 
-    private fun requestStatus() {
-        setConnection("Requesting current CodePC status …")
-        statusButton.isEnabled = false
-        client.requestStatus { result ->
-            runOnUiThread {
-                result.fold(
-                    onSuccess = { line ->
-                        runCatching { StatusProtocol.parseResponse(line) }
-                            .onSuccess { parsed ->
-                                resultView.text = parsed.summary + "\n\nRaw response:\n" + parsed.raw
-                                updateCockpitTarget(parsed.cockpitUrl)
-                                setConnection("Status received")
-                                if (parsed.cockpitUrl != null) showCockpitTab()
-                            }
-                            .onFailure { error ->
-                                resultView.text = line
-                                setConnection("Invalid status response: ${error.message}")
-                            }
-                    },
-                    onFailure = { error ->
-                        setConnection("Status request failed: ${error.message ?: error.javaClass.simpleName}")
-                    },
-                )
-                statusButton.isEnabled = client.connected
-                disconnectButton.isEnabled = client.connected
-            }
+    override fun onStatusJson(json: String) {
+        runOnUiThread {
+            runCatching { StatusProtocol.parseResponse(json) }
+                .onSuccess { parsed ->
+                    resultView.text = parsed.summary + "\n\nRaw response:\n" + parsed.raw
+                    cockpitUrl = parsed.cockpitUrl
+                    cockpitButton.isEnabled = parsed.cockpitUrl != null
+                    hidStateView.text = "Status received over vendor HID transport."
+                }
+                .onFailure { error ->
+                    resultView.text = json
+                    hidStateView.text = "Invalid CodePC status: ${error.message}"
+                }
         }
     }
 
-    private fun disconnect() {
-        setConnection("Disconnecting …")
-        client.disconnect {
-            runOnUiThread {
-                setConnection("Disconnected")
-                connectButton.isEnabled = selectedDevice != null && hasConnectPermission()
-                statusButton.isEnabled = false
-                disconnectButton.isEnabled = false
-            }
+    override fun onHidError(message: String) {
+        runOnUiThread {
+            hidStateView.text = message
+            toast(message)
         }
     }
 
-    private fun openCockpit() {
-        val target = cockpitUrl ?: return
-        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target)))
-    }
-
-    private fun updateCockpitTarget(target: String?) {
-        cockpitUrl = target
-        cockpitButton.isEnabled = target != null
-        cockpitTabButton.isEnabled = target != null
-        cockpitLoadedUrl = null
-        cockpitPageProblem = null
-        cockpitWebView.stopLoading()
-        cockpitWebView.loadUrl("about:blank")
-        cockpitWebView.clearHistory()
-        cockpitAddressView.text = target ?: "Request status to discover the Cockpit address."
-        if (target == null) showConnectionTab()
-    }
-
-    private fun showConnectionTab() {
-        connectionPanel.visibility = LinearLayout.VISIBLE
-        cockpitPanel.visibility = LinearLayout.GONE
-        connectionTabButton.alpha = 1f
-        cockpitTabButton.alpha = 0.65f
-    }
-
-    private fun showCockpitTab() {
-        val target = cockpitUrl ?: return
-        connectionPanel.visibility = LinearLayout.GONE
-        cockpitPanel.visibility = LinearLayout.VISIBLE
-        connectionTabButton.alpha = 0.65f
-        cockpitTabButton.alpha = 1f
-        if (cockpitLoadedUrl != target) {
-            cockpitLoadedUrl = target
-            cockpitPageProblem = null
-            cockpitAddressView.text = target
-            cockpitWebView.loadUrl(target)
-        }
-    }
-
-    private fun handleWebNavigation(uri: Uri): Boolean {
-        val allowed = Uri.parse(cockpitUrl ?: return true)
-        val staysOnSelectedPc = sameOrigin(uri, allowed)
-        if (!staysOnSelectedPc) {
-            startActivity(Intent(Intent.ACTION_VIEW, uri))
-        }
-        return !staysOnSelectedPc
-    }
-
-    private fun handleCockpitSslError(handler: SslErrorHandler, error: SslError) {
-        val target = Uri.parse(cockpitUrl ?: run {
-            handler.cancel()
-            return
-        })
-        val failed = Uri.parse(error.url)
-        if (!sameOrigin(failed, target)) {
-            handler.cancel()
-            return
-        }
-
-        val origin = "${target.scheme}://${target.host}:${target.port}"
-        if (origin in approvedSslOrigins) {
-            handler.proceed()
-            return
-        }
-
-        val fingerprint = certificateFingerprint(error.certificate)
-        val detail = buildString {
-            appendLine("Android does not trust the Cockpit certificate for:")
-            appendLine(origin)
-            appendLine()
-            appendLine("Certificate: ${error.certificate.issuedTo.cName ?: "unknown"}")
-            if (fingerprint != null) appendLine("SHA-256: $fingerprint")
-            appendLine()
-            append("Continue only if this is your CodePC. Approval lasts until the app closes.")
-        }
-        cockpitAddressView.text = "Cockpit certificate confirmation required"
-
-        AlertDialog.Builder(this)
-            .setTitle("Untrusted Cockpit certificate")
-            .setMessage(detail)
-            .setPositiveButton("Continue this session") { _, _ ->
-                approvedSslOrigins += origin
-                handler.proceed()
-            }
-            .setNegativeButton("Open externally") { _, _ ->
-                handler.cancel()
-                openCockpit()
-            }
-            .setOnCancelListener { handler.cancel() }
-            .show()
-    }
-
-    private fun sameOrigin(first: Uri, second: Uri): Boolean =
-        first.scheme == "https" &&
-            first.scheme == second.scheme &&
-            first.host == second.host &&
-            first.port == second.port
-
-    @Suppress("DEPRECATION")
-    private fun installedWebViewVersion(): String = runCatching {
-        packageManager.getPackageInfo("com.google.android.webview", 0).versionName ?: "unknown"
-    }.getOrDefault("unknown")
-
-    private fun openWebViewUpdate() {
-        val packageUri = Uri.parse("market://details?id=com.google.android.webview")
-        val storeIntent = Intent(Intent.ACTION_VIEW, packageUri)
-        runCatching { startActivity(storeIntent) }
-            .onFailure {
-                startActivity(
-                    Intent(
-                        Intent.ACTION_VIEW,
-                        Uri.parse(
-                            "https://play.google.com/store/apps/details?id=com.google.android.webview",
-                        ),
-                    ),
-                )
-            }
-    }
-
-    private fun certificateFingerprint(certificate: SslCertificate): String? = runCatching {
-        val state = SslCertificate.saveState(certificate)
-        val encoded = state.getByteArray("x509-certificate") ?: return@runCatching null
-        MessageDigest.getInstance("SHA-256")
-            .digest(encoded)
-            .joinToString(":") { byte -> "%02X".format(byte.toInt() and 0xff) }
-    }.getOrNull()
-
-    private fun setConnection(message: String) {
-        connectionView.text = message
-    }
-
-    private fun setControlsEnabled(enabled: Boolean) {
-        connectButton.isEnabled = enabled && selectedDevice != null
-        statusButton.isEnabled = enabled && client.connected
-        disconnectButton.isEnabled = enabled && client.connected
-    }
-
-    private fun hasConnectPermission(): Boolean =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
-
-    override fun onDestroy() {
-        client.close()
-        cockpitWebView.stopLoading()
-        cockpitWebView.destroy()
-        super.onDestroy()
+    private fun toast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
     companion object {
-        private const val REQUEST_CONNECT_PERMISSION = 1001
-        private const val PREF_DEVICE_ADDRESS = "selected_device_address"
+        private const val REQUEST_BLUETOOTH_PERMISSIONS = 40
+        private const val REQUEST_DISCOVERABLE = 41
+        private const val DISCOVERABLE_SECONDS = 120
+        private const val AUTO_PUSH_SECONDS = 5
+        private const val PREF_HOST_ADDRESS = "selected-hid-host-address"
     }
 }
