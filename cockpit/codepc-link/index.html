@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CodePC Link HID</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="../base1/cockpit.js"></script>
+</head>
+<body>
+  <main class="page">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">CodePC Link</p>
+        <h1>Android HID pairing</h1>
+        <p class="subtitle">The phone is a vendor-defined Bluetooth HID device; CodePC is the HID host.</p>
+      </div>
+      <div class="actions">
+        <button id="refresh-button" type="button" class="secondary">Refresh</button>
+        <button id="scan-button" type="button">Scan for phone</button>
+      </div>
+    </header>
+
+    <section class="policy-card">
+      <h2>Server-initiated first pairing</h2>
+      <p>Initial pairing starts only from this CodePC. The Android app never creates the bond.</p>
+      <ol>
+        <li>Open the CodePC Link HID app on Android and keep it in the foreground.</li>
+        <li>Tap <strong>Make phone discoverable</strong> in the app.</li>
+        <li>Click <strong>Scan for phone</strong> here and then <strong>Pair from CodePC</strong>.</li>
+        <li>Confirm the Android pairing prompt. After bonding, choose the CodePC host in the app and connect HID.</li>
+      </ol>
+      <p class="muted">The HID descriptor uses vendor usage page 0xFF00 and does not declare keyboard or mouse usages.</p>
+    </section>
+
+    <section class="status-card" aria-live="polite">
+      <div id="status-dot" class="status-dot neutral"></div>
+      <div>
+        <strong id="status-title">Ready</strong>
+        <p id="status-detail">Refresh or scan to load Bluetooth devices.</p>
+      </div>
+    </section>
+
+    <section class="server-card">
+      <div>
+        <h2>HID status server</h2>
+        <p id="server-guard-detail" class="muted">Checking HID server supervision…</p>
+      </div>
+      <label class="toggle-control" for="server-guard-toggle">
+        <input id="server-guard-toggle" type="checkbox" disabled>
+        <span>Keep HID status server alive</span>
+      </label>
+    </section>
+
+    <section>
+      <div class="section-heading">
+        <div>
+          <h2>Bluetooth devices</h2>
+          <p id="adapter-summary" class="muted">Adapter status not loaded yet.</p>
+        </div>
+      </div>
+      <div id="device-list" class="device-list">
+        <p class="empty">No Bluetooth data loaded.</p>
+      </div>
+    </section>
+  </main>
+
+  <template id="device-template">
+    <article class="device-card">
+      <div class="device-main">
+        <div>
+          <h3 class="device-name"></h3>
+          <p class="device-address"></p>
+        </div>
+        <div class="badges"></div>
+      </div>
+      <p class="device-meta"></p>
+      <div class="device-actions"></div>
+    </article>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>

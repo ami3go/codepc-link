@@ -9,13 +9,17 @@ def test_pairing_agent_uses_headless_capability() -> None:
     assert AGENT_CAPABILITY == "NoInputNoOutput"
 
 
-def test_pairing_agent_accepts_just_works_authorization() -> None:
+def test_pairing_agent_rejects_incoming_first_pair() -> None:
     agent = PairingAgent()
-    assert agent.RequestAuthorization("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF") is None
-    assert agent.RequestConfirmation(
-        "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF",
-        123456,
-    ) is None
+    device = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF"
+
+    with pytest.raises(DBusError) as authorization:
+        agent.RequestAuthorization(device)
+    assert authorization.value.type == BLUEZ_REJECTED
+
+    with pytest.raises(DBusError) as confirmation:
+        agent.RequestConfirmation(device, 123456)
+    assert confirmation.value.type == BLUEZ_REJECTED
 
 
 def test_pairing_agent_rejects_input_requests() -> None:
