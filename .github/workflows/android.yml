@@ -1,8 +1,13 @@
-name: Android RFCOMM
+name: Android HID
 
 on:
   push:
-    branches: [feat/android-rfcomm-app]
+    branches: [feat/hid]
+    paths:
+      - "android/**"
+      - ".github/workflows/android.yml"
+  pull_request:
+    branches: [main]
     paths:
       - "android/**"
       - ".github/workflows/android.yml"
@@ -34,5 +39,5 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v6
         with:
-          name: codepc-link-android-debug
+          name: codepc-link-android-hid-debug
           path: android/app/build/outputs/apk/debug/app-debug.apk
